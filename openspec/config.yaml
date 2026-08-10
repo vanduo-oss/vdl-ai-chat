@@ -1,0 +1,24 @@
+schema: spec-driven
+
+context: |
+  Package: @vanduo-oss/vdl-ai-chat (MIT, vanduo-oss org, currently private).
+  Headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails and
+  CSP-safe markdown. Zero runtime npm deps; heavy runtimes load via CDN or
+  host-injected loaders (CSP). Stack: TypeScript ESM library, vite lib build,
+  vitest. OpenSpec is the source of truth; README is a short usage guide.
+  Do not add CI workflows while the package remains private/unpublished.
+  ts-school dogfoods via file: dependency and must stay API-compatible.
+
+rules:
+  proposal:
+    - Always include a Non-goals section
+    - Call out semver / ts-school compatibility impact
+  specs:
+    - Use Given/When/Then scenario format
+    - Use SHALL/MUST for normative requirements
+  design:
+    - Headless only — no Vue UI in this package
+    - Keep injectable loaders for LiteRT/WebLLM
+    - No new runtime npm dependencies
+  tasks:
+    - Include pnpm build and pnpm test when code changes
