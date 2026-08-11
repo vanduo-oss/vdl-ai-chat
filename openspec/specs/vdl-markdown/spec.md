@@ -1,7 +1,7 @@
 # vdl-markdown Specification
 
 ## Purpose
-TBD - created by archiving change promote-vdl-ai-chat. Update Purpose after archive.
+CSP-safe markdown-to-HTML helpers that escape untrusted content and support a basic GFM subset.
 ## Requirements
 ### Requirement: escape untrusted markdown
 

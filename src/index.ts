@@ -55,6 +55,12 @@ export {
 
 export { labsMarkdownToHtml, markdownToHtml } from './markdown.js';
 
-export { VD_GUARDRAILS_VERSION, allow, block, normalizeText, toGuardrailError } from './guardrails/core.js';
+export {
+  VD_GUARDRAILS_VERSION,
+  allow,
+  block,
+  normalizeText,
+  toGuardrailError,
+} from './guardrails/core.js';
 export type { GuardrailResult, GuardrailError } from './guardrails/core.js';
 export type { ToolDefinition } from './guardrails/tools.js';

@@ -108,8 +108,7 @@ export const MODEL_OPTIONS = [
     maxNumTokens: 4096,
     disableThinking: true,
     modelFile: 'Qwen3-0.6B.litertlm',
-    modelUrl:
-      'https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B.litertlm',
+    modelUrl: 'https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B.litertlm',
   },
   {
     id: 'ministral-3-3B-litert',
@@ -232,9 +231,7 @@ export const LOAD_FREEZE_HINT =
  * @param {unknown} progressText
  * @returns {'cache' | 'local' | 'network' | 'unknown'}
  */
-export function inferLoadSource(
-  progressText: unknown,
-): 'cache' | 'local' | 'network' | 'unknown' {
+export function inferLoadSource(progressText: unknown): 'cache' | 'local' | 'network' | 'unknown' {
   const text = String(progressText || '').toLowerCase();
   if (!text) return 'unknown';
   if (/\/models\//.test(text) || /\blocal\b/.test(text)) return 'local';
@@ -282,7 +279,7 @@ export function describeLoadProgress(
   const likelyCached = options.likelyCached === true;
   const explicitSource = data?.source;
   type LoadSource = 'cache' | 'local' | 'network' | 'unknown';
-  let inferred: LoadSource = 'unknown';
+  let inferred: LoadSource;
   if (
     explicitSource === 'cache' ||
     explicitSource === 'local' ||
@@ -397,9 +394,8 @@ export const LITERT_PREFILLDECODE_UNSUPPORTED_REASON =
  * @param {string | { backend?: string, litertKind?: string, litertRuntime?: string } | null | undefined} modelOrId
  */
 export function isLiteRTPrefillDecodeUnsupported(modelOrId) {
-  const option = typeof modelOrId === 'string' || modelOrId == null
-    ? getModelOption(modelOrId)
-    : modelOrId;
+  const option =
+    typeof modelOrId === 'string' || modelOrId == null ? getModelOption(modelOrId) : modelOrId;
   if (!option || option.backend !== 'litert') return false;
   if (option.litertKind === 'web-official') return false;
   return option.litertRuntime === 'prefilldecode-unsupported';
@@ -410,9 +406,7 @@ export function isLiteRTPrefillDecodeUnsupported(modelOrId) {
  * @returns {string} empty when load is not blocked for LiteRT runtime reasons
  */
 export function getLiteRTRuntimeBlockReason(modelOrId) {
-  return isLiteRTPrefillDecodeUnsupported(modelOrId)
-    ? LITERT_PREFILLDECODE_UNSUPPORTED_REASON
-    : '';
+  return isLiteRTPrefillDecodeUnsupported(modelOrId) ? LITERT_PREFILLDECODE_UNSUPPORTED_REASON : '';
 }
 
 /**
@@ -422,7 +416,7 @@ export function getLiteRTRuntimeBlockReason(modelOrId) {
 export function rewriteLiteRTLoadError(err) {
   // CSP / <script> load failures often surface as Event, not Error.
   if (err && typeof err === 'object' && !(err instanceof Error) && 'type' in err) {
-    const target = /** @type {{ target?: { src?: string, href?: string } }} */ (err).target;
+    const target = /** @type {{ target?: { src?: string, href?: string } }} */ err.target;
     const src = target?.src || target?.href || '';
     if (/jsdelivr|unpkg|esm\.run/i.test(src)) {
       return new Error(
@@ -451,8 +445,12 @@ export function rewriteLiteRTLoadError(err) {
  * Confirm-dialog copy when heuristics flag a constrained device.
  * @param {{ approxGb: number, recommendedLabel?: string }} opts
  */
-export function buildWeakDeviceConfirmCopy({ approxGb, recommendedLabel }: { approxGb?: number; recommendedLabel?: string } = {}) {
-  const size = approxGb != null && Number.isFinite(approxGb) ? `~${approxGb.toFixed(1)} GB` : 'a large';
+export function buildWeakDeviceConfirmCopy({
+  approxGb,
+  recommendedLabel,
+}: { approxGb?: number; recommendedLabel?: string } = {}) {
+  const size =
+    approxGb != null && Number.isFinite(approxGb) ? `~${approxGb.toFixed(1)} GB` : 'a large';
   const prefer = recommendedLabel
     ? `Prefer “${recommendedLabel}” on older or low-RAM machines, close other heavy tabs, then continue.`
     : 'Prefer a Tiny / smaller model on older or low-RAM machines, close other heavy tabs, then continue.';
@@ -514,10 +512,10 @@ function generationConfigForModel(modelId) {
     ? { ...GEMMA4_GENERATION_CONFIG }
     : { ...DEFAULT_GENERATION_CONFIG };
   if (
-    option?.disableThinking
-    || option?.family === 'qwen3'
-    || option?.family === 'gemma4'
-    || option?.group === 'gemma4'
+    option?.disableThinking ||
+    option?.family === 'qwen3' ||
+    option?.family === 'gemma4' ||
+    option?.group === 'gemma4'
   ) {
     cfg.enable_thinking = false;
   }
@@ -540,6 +538,7 @@ function isWebLLMGemmaMlC(modelId) {
 function extractLiteRTText(response) {
   const parts = response?.content;
   if (typeof response === 'string') return response;
+  if (typeof parts === 'string') return parts;
   if (!Array.isArray(parts)) {
     return normalizeCompletionText(response?.text ?? response?.message?.content ?? '');
   }
@@ -596,9 +595,7 @@ export async function* iterateMessageStream(streamLike) {
     return;
   }
 
-  throw new TypeError(
-    'LiteRT streaming response is not an async iterable or ReadableStream',
-  );
+  throw new TypeError('LiteRT streaming response is not an async iterable or ReadableStream');
 }
 
 /** Strip accidental thinking / turn markers from streamed text (defense in depth). */
@@ -640,7 +637,10 @@ export function getModelOption(modelId) {
 export function getModelDisplayName(modelId) {
   const option = getModelOption(modelId);
   if (!option) return modelId;
-  return option.label.split('(~')[0].replace(/\s+-\s+\w+$/, '').trim();
+  return option.label
+    .split('(~')[0]
+    .replace(/\s+-\s+\w+$/, '')
+    .trim();
 }
 
 /**
@@ -671,8 +671,7 @@ export function collectDeviceSignals(adapter: any = null) {
       typeof limits?.maxStorageBufferBindingSize === 'number'
         ? limits.maxStorageBufferBindingSize
         : null,
-    maxBufferSize:
-      typeof limits?.maxBufferSize === 'number' ? limits.maxBufferSize : null,
+    maxBufferSize: typeof limits?.maxBufferSize === 'number' ? limits.maxBufferSize : null,
   };
 }
 
@@ -723,7 +722,9 @@ export function assessLoadCapacity(opts: Record<string, any> = {}) {
     );
   } else if (deviceMemory != null && deviceMemory <= 4) {
     if (level === 'ok') level = 'caution';
-    reasons.push(`Browser reports ~${deviceMemory} GB RAM — expect longer freezes during WebGPU init.`);
+    reasons.push(
+      `Browser reports ~${deviceMemory} GB RAM — expect longer freezes during WebGPU init.`,
+    );
   }
 
   // Largest catalog models on ambiguous 8 GB deviceMemory bucket.
@@ -877,9 +878,7 @@ async function readBodyToBlobWithProgress(source, onProgress, knownTotal = 0) {
     return source;
   }
 
-  const totalBytes = knownTotal
-    || Number(source.headers?.get?.('content-length'))
-    || 0;
+  const totalBytes = knownTotal || Number(source.headers?.get?.('content-length')) || 0;
   let received = 0;
 
   if (!source.body || typeof source.body.getReader !== 'function') {
@@ -931,9 +930,7 @@ export async function loadLiteRTModelBytes(url: string, options: Record<string, 
   const cached = await matchCachedModel(url);
   if (cached) {
     const blob = await readBodyToBlobWithProgress(cached, onProgress);
-    const modelSource = asStream && typeof blob.stream === 'function'
-      ? blob.stream()
-      : blob;
+    const modelSource = asStream && typeof blob.stream === 'function' ? blob.stream() : blob;
     return { modelSource, source: 'cache' };
   }
 
@@ -946,38 +943,9 @@ export async function loadLiteRTModelBytes(url: string, options: Record<string, 
   await putCachedModel(url, blob);
 
   const networkSource = urlIsLocal ? 'local' : 'network';
-  const modelSource = asStream && typeof blob.stream === 'function'
-    ? blob.stream()
-    : blob;
+  const modelSource = asStream && typeof blob.stream === 'function' ? blob.stream() : blob;
   return { modelSource, source: networkSource };
 }
-
-/**
- * Fetch model bytes as a ReadableStream with download progress (cache-aware).
- * @param {string} url
- * @param {(p: { loaded: number, received: number, totalBytes: number }) => void} [onProgress]
- */
-async function openProgressModelStream(url, onProgress) {
-  const { modelSource } = await loadLiteRTModelBytes(url, {
-    asStream: true,
-    onProgress,
-  });
-  return modelSource;
-}
-
-/**
- * Fetch model bytes into a Blob with download progress (cache-aware).
- * @param {string} url
- * @param {(p: { loaded: number, received: number, totalBytes: number }) => void} [onProgress]
- */
-async function openProgressModelBlob(url, onProgress) {
-  const { modelSource } = await loadLiteRTModelBytes(url, {
-    asStream: false,
-    onProgress,
-  });
-  return modelSource;
-}
-
 
 const localModelProbeCache = new Map();
 
@@ -1010,7 +978,10 @@ async function resolveModelSource(option) {
   }
 
   try {
-    const probe = await fetch(`${localRoot}/mlc-chat-config.json`, { method: 'GET', cache: 'no-store' });
+    const probe = await fetch(`${localRoot}/mlc-chat-config.json`, {
+      method: 'GET',
+      cache: 'no-store',
+    });
     const ok = probe.ok;
     localModelProbeCache.set(option.id, ok);
     if (ok) {
@@ -1029,9 +1000,7 @@ async function resolveLiteRTModelUrl(option) {
   const localPath = `/models/${option.id}/${fileName}`;
 
   if (localModelProbeCache.has(option.id)) {
-    return localModelProbeCache.get(option.id)
-      ? absoluteUrl(localPath)
-      : option.modelUrl;
+    return localModelProbeCache.get(option.id) ? absoluteUrl(localPath) : option.modelUrl;
   }
 
   try {
@@ -1039,7 +1008,7 @@ async function resolveLiteRTModelUrl(option) {
     const ok = probe.ok;
     localModelProbeCache.set(option.id, ok);
     if (ok) {
-      console.info(`[AiChat] Using local LiteRT model for ${option.id}: ${localPath}`);
+      console.warn(`[AiChat] Using local LiteRT model for ${option.id}: ${localPath}`);
       return absoluteUrl(localPath);
     }
   } catch {
@@ -1082,7 +1051,7 @@ async function buildModelAppConfig(modelId) {
   if (!option?.modelUrl || !option?.modelLibUrl) return null;
   const source = await resolveModelSource(option);
   if (source.local) {
-    console.info(`[AiChat] Using local model mirror for ${option.id}: ${source.modelUrl}`);
+    console.warn(`[AiChat] Using local model mirror for ${option.id}: ${source.modelUrl}`);
   }
   return {
     model_list: [
@@ -1121,20 +1090,6 @@ function extractCompletionChoiceText(choice) {
 function extractCompletionResponseText(response) {
   const choice = response?.choices?.[0];
   return extractCompletionChoiceText(choice);
-}
-
-function formatBytes(bytes) {
-  if (bytes === null || bytes === undefined || Number.isNaN(bytes)) return '—';
-  const n = Number(bytes);
-  if (n === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let v = n;
-  let u = 0;
-  while (v >= 1024 && u < units.length - 1) {
-    v /= 1024;
-    u += 1;
-  }
-  return `${v < 10 && u > 0 ? v.toFixed(1) : Math.round(v)} ${units[u]}`;
 }
 
 async function loadWebLLM(customLoader: any = null) {
@@ -1202,7 +1157,7 @@ export const InputGuardrail = {
       };
     }
     return { isValid: true };
-  }
+  },
 };
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1248,10 +1203,8 @@ export class AiChat {
      * Named distinctly from `_loadLiteRT()` / `_loadWebLLM()` methods — an own
      * property with the same name would shadow the prototype method and make
      * `load()` import the package without ever calling Engine.create. */
-    this._customLoadLiteRT =
-      typeof options.loadLiteRT === 'function' ? options.loadLiteRT : null;
-    this._customLoadWebLLM =
-      typeof options.loadWebLLM === 'function' ? options.loadWebLLM : null;
+    this._customLoadLiteRT = typeof options.loadLiteRT === 'function' ? options.loadLiteRT : null;
+    this._customLoadWebLLM = typeof options.loadWebLLM === 'function' ? options.loadWebLLM : null;
     /**
      * Same-origin directory (or .js URL) for LiteRT WASM glue.
      * Required under CSP `script-src 'self'` — the package default is jsDelivr.
@@ -1272,7 +1225,10 @@ export class AiChat {
       .map((d) => ({
         name: String(d?.name || '').trim(),
         description: String(d?.description || ''),
-        parameters: d?.parameters && typeof d.parameters === 'object' ? d.parameters : { type: 'object', properties: {} },
+        parameters:
+          d?.parameters && typeof d.parameters === 'object'
+            ? d.parameters
+            : { type: 'object', properties: {} },
       }))
       .filter((d) => d.name);
     // Conversation preface may include tools — force refresh on next turn.
@@ -1327,7 +1283,7 @@ export class AiChat {
   onProgress(callback) {
     this._progressSubscribers.push(callback);
     return () => {
-      this._progressSubscribers = this._progressSubscribers.filter(cb => cb !== callback);
+      this._progressSubscribers = this._progressSubscribers.filter((cb) => cb !== callback);
     };
   }
 
@@ -1361,7 +1317,11 @@ export class AiChat {
   async _ensureLiteRTConversation(forceNew = false) {
     if (!forceNew && this._conversation) return this._conversation;
     if (this._conversation && typeof this._conversation.delete === 'function') {
-      try { await this._conversation.delete(); } catch { /* ignore */ }
+      try {
+        await this._conversation.delete();
+      } catch {
+        /* ignore */
+      }
     }
     const systemContent = this._composeSystemPrompt();
     const preface: any = modelSupportsSystemRole(this.modelId)
@@ -1394,9 +1354,7 @@ export class AiChat {
       }
     }
 
-    this._conversation = await this.engine.createConversation(
-      preface ? { preface } : undefined,
-    );
+    this._conversation = await this.engine.createConversation(preface ? { preface } : undefined);
     if (this._tools.length > 0 && this._nativeToolsSupported !== true) {
       this._nativeToolsSupported = false;
     }
@@ -1411,15 +1369,21 @@ export class AiChat {
   _extractNativeToolCalls(message) {
     const raw = message?.tool_calls || message?.toolCalls || [];
     if (!Array.isArray(raw) || raw.length === 0) return [];
-    return raw.map((call) => {
-      const name = call?.function?.name || call?.name || '';
-      let args = call?.function?.arguments ?? call?.arguments ?? {};
-      if (typeof args === 'string') {
-        try { args = JSON.parse(args); } catch { args = { raw: args }; }
-      }
-      if (!args || typeof args !== 'object' || Array.isArray(args)) args = {};
-      return { name: String(name), args };
-    }).filter((c) => c.name);
+    return raw
+      .map((call) => {
+        const name = call?.function?.name || call?.name || '';
+        let args = call?.function?.arguments ?? call?.arguments ?? {};
+        if (typeof args === 'string') {
+          try {
+            args = JSON.parse(args);
+          } catch {
+            args = { raw: args };
+          }
+        }
+        if (!args || typeof args !== 'object' || Array.isArray(args)) args = {};
+        return { name: String(name), args };
+      })
+      .filter((c) => c.name);
   }
 
   /**
@@ -1481,9 +1445,7 @@ export class AiChat {
           finalReply = applyOutputGuardrails(reply.trim());
           if (!finalReply) {
             this.messages.pop();
-            throw new Error(
-              `Model ${this.modelId} returned an empty response during tool loop.`,
-            );
+            throw new Error(`Model ${this.modelId} returned an empty response during tool loop.`);
           }
           this.messages.push({ role: 'assistant', content: finalReply });
           if (onFinish) onFinish(null);
@@ -1522,9 +1484,7 @@ export class AiChat {
         }
 
         // Feed tool results back as the next user turn (XML protocol is portable).
-        pendingUserPayload = results
-          .map((r) => formatXmlToolResult(r.name, r.result))
-          .join('\n');
+        pendingUserPayload = results.map((r) => formatXmlToolResult(r.name, r.result)).join('\n');
         this.messages.push({ role: 'user', content: pendingUserPayload });
       }
 
@@ -1553,9 +1513,7 @@ export class AiChat {
     let rawMessage = null;
 
     if (typeof conversation.sendMessageStreaming === 'function') {
-      for await (const chunk of iterateMessageStream(
-        conversation.sendMessageStreaming(userText),
-      )) {
+      for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText))) {
         rawMessage = chunk;
         const delta = extractLiteRTText(chunk);
         if (!delta) continue;
@@ -1651,10 +1609,10 @@ export class AiChat {
 
     // Default package path is jsDelivr; CSP hosts must pass liteRtWasmPath (same-origin).
     if (
-      this._liteRtWasmPath
-      && typeof loadLiteRtLm === 'function'
-      && !hasGlobalLiteRtLmPromise?.()
-      && !hasGlobalLiteRtLm?.()
+      this._liteRtWasmPath &&
+      typeof loadLiteRtLm === 'function' &&
+      !hasGlobalLiteRtLmPromise?.() &&
+      !hasGlobalLiteRtLm?.()
     ) {
       this._emitProgress({
         stage: 'init',
@@ -1675,7 +1633,7 @@ export class AiChat {
     const displayName = getModelDisplayName(this.modelId);
     const isLocal = /\/models\//.test(String(modelUrl || ''));
     const alreadyCached = Boolean(await matchCachedModel(modelUrl));
-    let loadSource = alreadyCached ? 'cache' : (isLocal ? 'local' : 'network');
+    let loadSource = alreadyCached ? 'cache' : isLocal ? 'local' : 'network';
     this._emitProgress({
       stage: 'downloading',
       message: alreadyCached
@@ -1693,23 +1651,26 @@ export class AiChat {
     // Bytes are buffered once so we can persist Cache Storage across refresh.
     const streamOk = option?.litertKind === 'web-official';
     if (!streamOk) {
-      console.info(`[AiChat] Buffering portable LiteRT model as Blob: ${option?.id}`);
+      console.warn(`[AiChat] Buffering portable LiteRT model as Blob: ${option?.id}`);
     }
     const onFetchProgress = ({ loaded, received, totalBytes }) => {
-      const pct = totalBytes > 0
-        ? `${Math.round(loaded * 100)}%`
-        : `${(received / (1024 * 1024)).toFixed(1)} MB`;
+      const pct =
+        totalBytes > 0
+          ? `${Math.round(loaded * 100)}%`
+          : `${(received / (1024 * 1024)).toFixed(1)} MB`;
       this._emitProgress({
         stage: 'downloading',
-        text: totalBytes > 0
-          ? `${pct} · ${(received / (1024 * 1024)).toFixed(0)} / ${(totalBytes / (1024 * 1024)).toFixed(0)} MB`
-          : pct,
+        text:
+          totalBytes > 0
+            ? `${pct} · ${(received / (1024 * 1024)).toFixed(0)} / ${(totalBytes / (1024 * 1024)).toFixed(0)} MB`
+            : pct,
         loaded: totalBytes > 0 ? loaded : Math.min(0.95, received / (2 * GiB)),
-        message: loadSource === 'cache'
-          ? 'Reading cached model weights…'
-          : isLocal
-            ? 'Reading local model weights…'
-            : 'Fetching model weights…',
+        message:
+          loadSource === 'cache'
+            ? 'Reading cached model weights…'
+            : isLocal
+              ? 'Reading local model weights…'
+              : 'Fetching model weights…',
         source: loadSource,
       });
     };
@@ -1739,6 +1700,9 @@ export class AiChat {
     } catch (err) {
       throw rewriteLiteRTLoadError(err);
     }
+    if (!this.engine || typeof this.engine.createConversation !== 'function') {
+      throw new Error('LiteRT Engine.create failed to initialize an engine.');
+    }
     await this._ensureLiteRTConversation(true);
   }
 
@@ -1752,15 +1716,15 @@ export class AiChat {
       initProgressCallback: (progress: any) => {
         const loaded = typeof progress.progress === 'number' ? progress.progress : 0;
         const text = String(progress.text || '');
-        const compiling = loaded >= 0.98
-          || /compil|shader|finish loading|loading model to gpu/i.test(text);
+        const compiling =
+          loaded >= 0.98 || /compil|shader|finish loading|loading model to gpu/i.test(text);
         this._emitProgress({
           stage: compiling ? 'compiling' : 'downloading',
           text: progress.text,
           loaded: progress.progress,
           message: compiling ? LOAD_FREEZE_HINT : undefined,
         });
-      }
+      },
     };
     if (appConfig) {
       engineConfig.appConfig = appConfig;
@@ -1797,9 +1761,7 @@ export class AiChat {
     }
     this._emitProgress({
       stage: 'init',
-      message: reason === 'reset'
-        ? 'Resetting model state…'
-        : 'Refreshing model state…',
+      message: reason === 'reset' ? 'Resetting model state…' : 'Refreshing model state…',
     });
     const chatOpts = this._chatOptionsForReload();
     if (chatOpts) {
@@ -1818,9 +1780,7 @@ export class AiChat {
     if (typeof conversation.sendMessageStreaming === 'function') {
       // Do not `for await` the raw return value — it is a ReadableStream, and
       // Safari cannot async-iterate ReadableStream (see iterateMessageStream).
-      for await (const chunk of iterateMessageStream(
-        conversation.sendMessageStreaming(userText),
-      )) {
+      for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText))) {
         const delta = extractLiteRTText(chunk);
         if (!delta) continue;
         // Streaming chunks may be cumulative or incremental — prefer append of delta text pieces.

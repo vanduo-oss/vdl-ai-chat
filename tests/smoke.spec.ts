@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { VDL_AI_CHAT_VERSION, MODEL_OPTIONS, TOOLS_UNSUPPORTED_ERROR, AiChat } from '../src/index.js';
+import {
+  VDL_AI_CHAT_VERSION,
+  MODEL_OPTIONS,
+  TOOLS_UNSUPPORTED_ERROR,
+  AiChat,
+} from '../src/index.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -25,8 +30,8 @@ describe('smoke', () => {
     chat.registerTools([{ name: 'ping', description: 'ping', parameters: { type: 'object' } }]);
     (chat as { _isLoaded: boolean; engine: object })._isLoaded = true;
     (chat as { engine: object }).engine = {};
-    await expect(
-      chat.generateWithTools('hi', { execute: async () => ({}) }),
-    ).rejects.toThrow(TOOLS_UNSUPPORTED_ERROR);
+    await expect(chat.generateWithTools('hi', { execute: async () => ({}) })).rejects.toThrow(
+      TOOLS_UNSUPPORTED_ERROR,
+    );
   });
 });

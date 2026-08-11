@@ -1,9 +1,5 @@
 import { allow, block, normalizeText, type GuardrailResult } from './core.js';
-import {
-  formatXmlToolResult,
-  parseXmlToolCalls,
-  validateToolCall,
-} from './tools.js';
+import { formatXmlToolResult, parseXmlToolCalls, validateToolCall } from './tools.js';
 
 export { VD_GUARDRAILS_VERSION } from './core.js';
 export { formatXmlToolResult, parseXmlToolCalls, validateToolCall };
@@ -179,10 +175,7 @@ export function normalizeJailbreakScanText(text: string): string {
     [/\b(igonre|ingore|ignroe|gonre|ignr|igore|ignoer|ignroe)\b/g, 'ignore'],
     [/\b(disreguard|disregad|disregaard|disregrd)\b/g, 'disregard'],
     [/\b(previousi|previuos|pervious|priveous|prevous|previus)\b/g, 'previous'],
-    [
-      /\b(instrucitons|instructons|insructions|instrctions|instructoins)\b/g,
-      'instructions',
-    ],
+    [/\b(instrucitons|instructons|insructions|instrctions|instructoins)\b/g, 'instructions'],
     [/\b(promtp|promt)\b/g, 'prompt'],
   ];
   for (const [re, rep] of wordFixes) {
@@ -201,9 +194,7 @@ function matchPatternIds(text: string, patterns: LlmGuardPattern[]): string[] {
   return matched;
 }
 
-export function validateLlmInput(
-  input: ValidateLlmInputOptions | string,
-): GuardrailResult {
+export function validateLlmInput(input: ValidateLlmInputOptions | string): GuardrailResult {
   const options = typeof input === 'string' ? { text: input } : input;
   const text = normalizeText(options?.text || '');
   const patterns = options?.patterns || DEFAULT_LLM_GUARD_PATTERNS;
@@ -238,9 +229,7 @@ export function validateLlmInput(
       message: LLM_BLOCK_MESSAGE,
       matchedPatternIds,
       meta: {
-        categories: patterns
-          .filter((p) => matchedPatternIds.includes(p.id))
-          .map((p) => p.category),
+        categories: patterns.filter((p) => matchedPatternIds.includes(p.id)).map((p) => p.category),
       },
     });
   }
@@ -248,9 +237,7 @@ export function validateLlmInput(
   return allow();
 }
 
-export function validateLlmOutput(
-  input: ValidateLlmInputOptions | string,
-): GuardrailResult {
+export function validateLlmOutput(input: ValidateLlmInputOptions | string): GuardrailResult {
   const options = typeof input === 'string' ? { text: input } : input;
   const text = normalizeText(options?.text || '');
   const patterns = options?.patterns || DEFAULT_LLM_OUTPUT_GUARD_PATTERNS;
@@ -266,9 +253,7 @@ export function validateLlmOutput(
       message: LLM_OUTPUT_BLOCK_MESSAGE,
       matchedPatternIds,
       meta: {
-        categories: patterns
-          .filter((p) => matchedPatternIds.includes(p.id))
-          .map((p) => p.category),
+        categories: patterns.filter((p) => matchedPatternIds.includes(p.id)).map((p) => p.category),
       },
     });
   }

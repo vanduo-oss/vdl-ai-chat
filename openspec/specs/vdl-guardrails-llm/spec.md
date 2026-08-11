@@ -1,7 +1,7 @@
 # vdl-guardrails-llm Specification
 
 ## Purpose
-TBD - created by archiving change promote-vdl-ai-chat. Update Purpose after archive.
+FOSS LLM input/output guardrails and tool-call allowlisting for on-device chat hosts.
 ## Requirements
 ### Requirement: block jailbreak inputs
 

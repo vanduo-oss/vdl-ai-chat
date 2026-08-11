@@ -1,8 +1,5 @@
-# repo-scaffold Specification
+## MODIFIED Requirements
 
-## Purpose
-Package scaffold, publish metadata, build/types, and GitHub Actions CI for @vanduo-oss/vdl-ai-chat.
-## Requirements
 ### Requirement: package-metadata
 
 The package MUST declare `@vanduo-oss/vdl-ai-chat` with `type: "module"`, `packageManager: "pnpm@10.28.2"`, engines `node >=20.19.0` and `pnpm >=10`, MIT license, and exports for `.`, `./guardrails/llm`, `./guardrails/tools`, `./markdown`. It MUST be publishable (MUST NOT set `"private": true`) with `publishConfig.access` of `public`.
@@ -27,6 +24,16 @@ The package MUST build library artifacts via `pnpm build` and emit TypeScript de
 - **THEN** it exits 0 and `dist/index.d.ts` exists
 - **AND** `dist/` MUST contain ESM, CJS, and `.d.ts` outputs for the main and subpath exports
 
+## REMOVED Requirements
+
+### Requirement: no-ci-while-private
+
+**Reason:** The package is being prepared for public npm release; CI is required as a remote quality gate.
+
+**Migration:** Replace with GitHub Actions CI that runs format, lint, typecheck, unit coverage, build, pack dry-run, and audit — without WebGPU inference.
+
+## ADDED Requirements
+
 ### Requirement: github-actions-ci
 
 The repository MUST include a GitHub Actions workflow on push/PR to `main` that runs format check, lint, typecheck, `test:ci`, build, `pnpm pack --dry-run`, and dependency audit.
@@ -34,4 +41,3 @@ The repository MUST include a GitHub Actions workflow on push/PR to `main` that 
 #### Scenario: CI does not run model inference
 - **WHEN** the CI workflow executes
 - **THEN** it MUST NOT run Playwright WebGPU Gemma load/generate tests
-

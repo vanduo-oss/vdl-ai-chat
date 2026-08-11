@@ -27,9 +27,7 @@ export function validateToolCall(options: {
   const rawAllow = options?.allowlist;
   const allowlist = new Set(
     Array.from(rawAllow as Iterable<string | ToolDefinition>)
-      .map((entry) =>
-        typeof entry === 'string' ? entry : normalizeText(entry?.name || ''),
-      )
+      .map((entry) => (typeof entry === 'string' ? entry : normalizeText(entry?.name || '')))
       .filter(Boolean),
   );
 
@@ -80,7 +78,7 @@ export function parseXmlToolCalls(text: string): {
   let remainder = source;
   while ((match = re.exec(source)) !== null) {
     const name = match[1];
-    let args: Record<string, unknown> = {};
+    let args: Record<string, unknown>;
     try {
       args = JSON.parse(match[2].trim() || '{}') as Record<string, unknown>;
     } catch {
