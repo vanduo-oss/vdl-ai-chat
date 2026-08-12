@@ -10,7 +10,7 @@ context: |
   Dual QA gates: CI runs format/lint/typecheck/test:ci/build/pack/audit (no
   WebGPU inference); local `pnpm test:local` adds Playwright Gemma E2B load+generate.
   GitHub Actions CI is allowed and required for public releases.
-  ts-school dogfoods via file: or npm ^0.1.0 and must stay API-compatible.
+  ts-school dogfoods via file: or npm ^0.1.1 and must stay API-compatible.
 
 rules:
   proposal:

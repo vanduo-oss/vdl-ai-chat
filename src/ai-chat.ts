@@ -33,7 +33,7 @@ const CDN = {
   litert: 'https://cdn.jsdelivr.net/npm/@litert-lm/core/+esm',
 };
 
-export const VDL_AI_CHAT_VERSION = '0.1.0';
+export const VDL_AI_CHAT_VERSION = '0.1.1';
 
 export const TOOLS_UNSUPPORTED_ERROR =
   'Tool calling is only supported on LiteRT Gemma (E2B/E4B) models.';
@@ -356,11 +356,12 @@ export function describeLoadProgress(
   }
 
   if (stage === 'error') {
+    const errText = message || text || 'Failed to load model.';
     return {
       stage,
       progressPct: 0,
-      progressText: '',
-      statusText: 'Error',
+      progressText: errText,
+      statusText: errText.length > 80 ? 'Error' : errText,
       statusTone: 'danger',
       freezeHint: '',
       source: 'unknown',
@@ -436,6 +437,19 @@ export function rewriteLiteRTLoadError(err) {
   if (/Content Security Policy|violates.*script-src/i.test(msg)) {
     return new Error(
       'LiteRT WASM was blocked by Content-Security-Policy. Pass AiChat({ liteRtWasmPath }) to a same-origin /wasm/ directory.',
+    );
+  }
+  // Keep definitive HTTP status errors from loadLiteRTModelBytes as-is.
+  if (/Failed to fetch model \(\d+/.test(msg)) {
+    return err instanceof Error ? err : new Error(msg);
+  }
+  if (
+    /network error|failed to fetch|load failed|js stream error|err_network|aborted|readableStream|stream error/i.test(
+      msg,
+    )
+  ) {
+    return new Error(
+      'LiteRT model download or stream failed (network error). Retry load; on headless Chrome prefer E2B or use a headed browser for E4B cold loads. Warm Cache Storage avoids re-download.',
     );
   }
   return err instanceof Error ? err : new Error(msg || 'Failed to load model.');
@@ -893,13 +907,22 @@ async function readBodyToBlobWithProgress(source, onProgress, knownTotal = 0) {
 
   const reader = source.body.getReader();
   const chunks: BlobPart[] = [];
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    received += value.byteLength;
-    const loaded = totalBytes > 0 ? Math.min(1, received / totalBytes) : 0;
-    onProgress?.({ loaded, received, totalBytes });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.byteLength;
+      const loaded = totalBytes > 0 ? Math.min(1, received / totalBytes) : 0;
+      onProgress?.({ loaded, received, totalBytes });
+    }
+  } catch (err) {
+    try {
+      reader.cancel?.();
+    } catch {
+      // ignore cancel after read failure
+    }
+    throw err;
   }
   const blob = new Blob(chunks, { type: 'application/octet-stream' });
   onProgress?.({
@@ -910,15 +933,37 @@ async function readBodyToBlobWithProgress(source, onProgress, knownTotal = 0) {
   return blob;
 }
 
+const FETCH_RETRY_STATUS = new Set([429, 502, 503, 504]);
+const FETCH_RETRY_ATTEMPTS = 3;
+const FETCH_RETRY_BASE_MS = 400;
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientFetchFailure(err: unknown, status?: number): boolean {
+  if (typeof status === 'number') {
+    return FETCH_RETRY_STATUS.has(status);
+  }
+  const msg = String((err as Error)?.message || err || '');
+  // Definitive HTTP status failures from this helper are not transient.
+  if (/Failed to fetch model \(\d+/.test(msg)) return false;
+  return /network error|failed to fetch|load failed|js stream error|err_network|aborted|stream error/i.test(
+    msg,
+  );
+}
+
 /**
  * Load LiteRT model bytes from Cache Storage or network, then optionally stream.
  * Always buffers once so we can persist a durable Cache Storage entry.
+ * Network fetch + body read retries transient failures (BC: same return shape).
  *
  * @param {string} url
  * @param {{
  *   asStream?: boolean,
  *   urlIsLocal?: boolean,
  *   onProgress?: (p: { loaded: number, received: number, totalBytes: number }) => void,
+ *   fetchRetries?: number,
  * }} [options]
  * @returns {Promise<{ modelSource: Blob | ReadableStream, source: 'cache' | 'local' | 'network' }>}
  */
@@ -926,6 +971,10 @@ export async function loadLiteRTModelBytes(url: string, options: Record<string, 
   const asStream = options.asStream === true;
   const urlIsLocal = options.urlIsLocal === true;
   const onProgress = options.onProgress;
+  const maxAttempts =
+    typeof options.fetchRetries === 'number' && options.fetchRetries >= 0
+      ? Math.floor(options.fetchRetries) + 1
+      : FETCH_RETRY_ATTEMPTS;
 
   const cached = await matchCachedModel(url);
   if (cached) {
@@ -934,17 +983,43 @@ export async function loadLiteRTModelBytes(url: string, options: Record<string, 
     return { modelSource, source: 'cache' };
   }
 
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch model (${res.status} ${res.statusText || ''}).`.trim());
-  }
-  const totalBytes = Number(res.headers.get('content-length')) || 0;
-  const blob = await readBodyToBlobWithProgress(res, onProgress, totalBytes);
-  await putCachedModel(url, blob);
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        const statusErr = new Error(
+          `Failed to fetch model (${res.status} ${res.statusText || ''}).`.trim(),
+        );
+        if (attempt < maxAttempts && isTransientFetchFailure(statusErr, res.status)) {
+          lastErr = statusErr;
+          await sleepMs(FETCH_RETRY_BASE_MS * attempt);
+          continue;
+        }
+        throw statusErr;
+      }
+      const totalBytes = Number(res.headers.get('content-length')) || 0;
+      const blob = await readBodyToBlobWithProgress(res, onProgress, totalBytes);
+      await putCachedModel(url, blob);
 
-  const networkSource = urlIsLocal ? 'local' : 'network';
-  const modelSource = asStream && typeof blob.stream === 'function' ? blob.stream() : blob;
-  return { modelSource, source: networkSource };
+      const networkSource = urlIsLocal ? 'local' : 'network';
+      const modelSource = asStream && typeof blob.stream === 'function' ? blob.stream() : blob;
+      return { modelSource, source: networkSource };
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts && isTransientFetchFailure(err)) {
+        await sleepMs(FETCH_RETRY_BASE_MS * attempt);
+        continue;
+      }
+      break;
+    }
+  }
+
+  const finalMsg = String((lastErr as Error)?.message || lastErr || 'Failed to fetch model.');
+  if (/Failed to fetch model \(\d+/i.test(finalMsg)) {
+    throw lastErr instanceof Error ? lastErr : new Error(finalMsg);
+  }
+  throw rewriteLiteRTLoadError(lastErr instanceof Error ? lastErr : new Error(finalMsg));
 }
 
 const localModelProbeCache = new Map();
@@ -1647,10 +1722,10 @@ export class AiChat {
     });
 
     // Engine accepts URL | ReadableStream | Blob.
-    // Official Gemma web builds use the default GPU_ARTISAN streaming loader.
-    // Bytes are buffered once so we can persist Cache Storage across refresh.
-    const streamOk = option?.litertKind === 'web-official';
-    if (!streamOk) {
+    // App-fetched weights are always fully buffered (Cache Storage). Passing
+    // Blob (not blob.stream()) avoids a second ReadableStream pass that can
+    // fail mid-load in headless Chrome for large E4B models.
+    if (option?.litertKind !== 'web-official') {
       console.warn(`[AiChat] Buffering portable LiteRT model as Blob: ${option?.id}`);
     }
     const onFetchProgress = ({ loaded, received, totalBytes }) => {
@@ -1675,7 +1750,7 @@ export class AiChat {
       });
     };
     const loadedBytes = await loadLiteRTModelBytes(modelUrl, {
-      asStream: streamOk,
+      asStream: false,
       urlIsLocal: isLocal,
       onProgress: onFetchProgress,
     });

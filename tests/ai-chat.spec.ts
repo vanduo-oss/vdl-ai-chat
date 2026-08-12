@@ -142,6 +142,8 @@ describe('AiChat load + generate (mocked LiteRT)', () => {
     await chat.load();
     expect(chat.isLoaded()).toBe(true);
     expect(mod.Engine.create).toHaveBeenCalled();
+    const createArg = (mod.Engine.create as any).mock.calls[0][0];
+    expect(createArg.model).toBeInstanceOf(Blob);
     expect(mod.loadLiteRtLm).toHaveBeenCalledWith('/litert-wasm/');
     expect(stages).toContain('ready');
     unsub();
