@@ -145,6 +145,18 @@ describe('load progress helpers', () => {
     );
     expect(describeLoadProgress({ stage: 'ready' }).progressText).toBe('Ready');
     expect(describeLoadProgress({ stage: 'error' }).statusTone).toBe('danger');
+    const errUi = describeLoadProgress({
+      stage: 'error',
+      message: 'Failed to fetch model weights',
+    });
+    expect(errUi.progressText).toBe('Failed to fetch model weights');
+    expect(errUi.statusText).toBe('Failed to fetch model weights');
+    const longErr = describeLoadProgress({
+      stage: 'error',
+      message: 'x'.repeat(100),
+    });
+    expect(longErr.progressText.length).toBe(100);
+    expect(longErr.statusText).toBe('Error');
     expect(describeLoadProgress({ stage: 'weird', message: 'x' }).source).toBe('unknown');
     expect(describeLoadProgress({ stage: '', text: '/models/x', loaded: 2 }).progressPct).toBe(100);
     expect(describeLoadProgress(null).statusText).toMatch(/Loading/);
@@ -203,6 +215,18 @@ describe('LiteRT runtime guards', () => {
     expect(rewriteLiteRTLoadError({}).message).toMatch(/Failed to load model|\[object Object\]/);
     const err = new Error('other');
     expect(rewriteLiteRTLoadError(err)).toBe(err);
+    const streamErr = rewriteLiteRTLoadError(
+      new Error('JS Stream Error [TypeError]: network error'),
+    );
+    expect(streamErr.message).toMatch(/network error|headless|E4B|Cache Storage/i);
+    expect(rewriteLiteRTLoadError(new Error('Failed to fetch')).message).toMatch(
+      /network error|Retry load/i,
+    );
+    const http404 = rewriteLiteRTLoadError(new Error('Failed to fetch model (404 Not Found).'));
+    expect(http404.message).toMatch(/404/);
+    expect(rewriteLiteRTLoadError('Failed to fetch model (502 Bad Gateway).').message).toMatch(
+      /502/,
+    );
     expect(isLiteRTPrefillDecodeUnsupported({ backend: 'litert', litertKind: 'spike' })).toBe(
       false,
     );
@@ -643,6 +667,158 @@ describe('model cache flags + Cache Storage', () => {
       })),
     );
     await expect(loadLiteRTModelBytes('https://example.com/missing')).rejects.toThrow(/404/);
+  });
+
+  it('loadLiteRTModelBytes retries transient network/stream failures', async () => {
+    const bucket = new Map<string, Response>();
+    vi.stubGlobal('caches', {
+      open: async () => ({
+        match: async (url: string) => bucket.get(url) || null,
+        put: async (url: string, res: Response) => {
+          bucket.set(url, res);
+        },
+      }),
+    });
+    const body = new Uint8Array([1, 2, 3]);
+    let attempts = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error('network error');
+        }
+        return {
+          ok: true,
+          headers: { get: (h: string) => (h === 'content-length' ? String(body.length) : null) },
+          body: {
+            getReader() {
+              let done = false;
+              return {
+                async read() {
+                  if (done) return { done: true, value: undefined };
+                  done = true;
+                  return { done: false, value: body };
+                },
+                cancel() {},
+              };
+            },
+          },
+        };
+      }),
+    );
+
+    const result = await loadLiteRTModelBytes('https://example.com/retry.litertlm', {
+      asStream: false,
+      fetchRetries: 2,
+    });
+    expect(attempts).toBe(2);
+    expect(result.source).toBe('network');
+    expect(result.modelSource).toBeInstanceOf(Blob);
+  });
+
+  it('loadLiteRTModelBytes retries HTTP 503 then succeeds; does not rewrite 404', async () => {
+    const bucket = new Map<string, Response>();
+    vi.stubGlobal('caches', {
+      open: async () => ({
+        match: async (url: string) => bucket.get(url) || null,
+        put: async (url: string, res: Response) => {
+          bucket.set(url, res);
+        },
+      }),
+    });
+    const body = new Uint8Array([4, 5, 6]);
+    let attempts = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return {
+            ok: false,
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: { get: () => null },
+          };
+        }
+        return {
+          ok: true,
+          headers: { get: (h: string) => (h === 'content-length' ? String(body.length) : null) },
+          async blob() {
+            return new Blob([body]);
+          },
+        };
+      }),
+    );
+
+    const result = await loadLiteRTModelBytes('https://example.com/503.litertlm', {
+      asStream: false,
+      fetchRetries: 2,
+    });
+    expect(attempts).toBe(2);
+    expect(result.modelSource).toBeInstanceOf(Blob);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        headers: { get: () => null },
+      })),
+    );
+    await expect(loadLiteRTModelBytes('https://example.com/missing-again')).rejects.toThrow(/404/);
+  });
+
+  it('loadLiteRTModelBytes rewrites mid-stream body read failures', async () => {
+    vi.stubGlobal('caches', {
+      open: async () => ({
+        match: async () => null,
+        put: async () => {},
+      }),
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        headers: { get: () => '100' },
+        body: {
+          getReader() {
+            return {
+              async read() {
+                throw new Error('JS Stream Error [TypeError]: network error');
+              },
+              cancel() {
+                throw new Error('cancel failed');
+              },
+            };
+          },
+        },
+      })),
+    );
+    await expect(
+      loadLiteRTModelBytes('https://example.com/stream-fail.litertlm', {
+        asStream: false,
+        fetchRetries: 0,
+      }),
+    ).rejects.toThrow(/network error|headless|E4B|Cache Storage/i);
+
+    // Non-Error throw is rewritten; negative fetchRetries falls back to default attempts.
+    let attempts = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        attempts += 1;
+        throw 'network error';
+      }),
+    );
+    await expect(
+      loadLiteRTModelBytes('https://example.com/string-fail.litertlm', {
+        asStream: false,
+        fetchRetries: -1,
+      }),
+    ).rejects.toThrow(/network error|Retry load/i);
+    expect(attempts).toBeGreaterThan(1);
   });
 
   it('loadLiteRTModelBytes covers local source, blob fallback, and asStream', async () => {

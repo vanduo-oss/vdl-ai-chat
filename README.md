@@ -73,6 +73,13 @@ pnpm exec playwright test -c tests/e2e/playwright.config.ts
 
 See `tests/e2e/playwright.config.ts` for `args` that enable WebGPU on Apple Silicon.
 
+## LiteRT model sizes (E2B vs E4B)
+
+- **E2B** (`gemma-4-E2B-it-web`, ~2 GB) — recommended default; reliable for CI/automation and headless Chrome.
+- **E4B** (`gemma-4-E4B-it-web`, ~2.5 GB) — higher quality; **cold load in headless Chrome** may fail mid-download/stream. Prefer headed browser or a warm Cache Storage entry. Not required for package e2e (E2B only).
+
+App-fetched weights are buffered to a `Blob` and passed to `Engine.create` (not re-streamed). Transient network failures retry a few times. Use `describeLoadProgress()` on `onProgress` events — `stage: 'error'` includes a human-readable `progressText` / `statusText`.
+
 ## Quality gates (local vs CI)
 
 | Script | What it runs | Inference? |
