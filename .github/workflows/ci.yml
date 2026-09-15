@@ -40,9 +40,6 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Pack dry-run
-        run: pnpm pack --dry-run
-
       - name: Audit
         run: pnpm audit --prod
         continue-on-error: false

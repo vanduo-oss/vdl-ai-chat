@@ -1390,7 +1390,8 @@ export class AiChat {
   }
 
   async _ensureLiteRTConversation(forceNew = false) {
-    if (!forceNew && this._conversation) return this._conversation;
+    if (!forceNew && this._conversation && !this._needsEngineReload) return this._conversation;
+    this._needsEngineReload = false;
     if (this._conversation && typeof this._conversation.delete === 'function') {
       try {
         await this._conversation.delete();
@@ -1583,30 +1584,62 @@ export class AiChat {
    * Like _completeOnceLiteRT but also returns the last raw message for tool_calls.
    */
   async _completeOnceLiteRTDetailed(userText, onUpdate) {
-    const conversation = await this._ensureLiteRTConversation(false);
+    let conversation = await this._ensureLiteRTConversation(false);
     let reply = '';
     let rawMessage = null;
 
-    if (typeof conversation.sendMessageStreaming === 'function') {
-      for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText))) {
-        rawMessage = chunk;
-        const delta = extractLiteRTText(chunk);
-        if (!delta) continue;
-        if (Array.isArray(chunk?.content)) {
-          reply += delta;
-        } else if (delta.startsWith(reply)) {
-          reply = delta;
-        } else {
-          reply += delta;
+    try {
+      if (typeof conversation.sendMessageStreaming === 'function') {
+        for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText))) {
+          rawMessage = chunk;
+          const delta = extractLiteRTText(chunk);
+          if (!delta) continue;
+          if (Array.isArray(chunk?.content)) {
+            reply += delta;
+          } else if (delta.startsWith(reply)) {
+            reply = delta;
+          } else {
+            reply += delta;
+          }
+          const cleanedPartial = sanitizeModelReply(reply) || reply;
+          if (onUpdate) onUpdate(cleanedPartial);
         }
-        const cleanedPartial = sanitizeModelReply(reply) || reply;
-        if (onUpdate) onUpdate(cleanedPartial);
+      } else {
+        const response = await conversation.sendMessage(userText);
+        rawMessage = response;
+        reply = extractLiteRTText(response);
+        if (reply && onUpdate) onUpdate(sanitizeModelReply(reply) || reply);
       }
-    } else {
-      const response = await conversation.sendMessage(userText);
-      rawMessage = response;
-      reply = extractLiteRTText(response);
-      if (reply && onUpdate) onUpdate(sanitizeModelReply(reply) || reply);
+    } catch (err: any) {
+      if (/too many tokens|context.*exceeded|out of memory|buffer overflow/i.test(err?.message || '')) {
+        console.warn('[AiChat] Token limit reached in LiteRT conversation; resetting conversation context.', err);
+        conversation = await this._ensureLiteRTConversation(true);
+        reply = '';
+        rawMessage = null;
+        if (typeof conversation.sendMessageStreaming === 'function') {
+          for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText))) {
+            rawMessage = chunk;
+            const delta = extractLiteRTText(chunk);
+            if (!delta) continue;
+            if (Array.isArray(chunk?.content)) {
+              reply += delta;
+            } else if (delta.startsWith(reply)) {
+              reply = delta;
+            } else {
+              reply += delta;
+            }
+            const cleanedPartial = sanitizeModelReply(reply) || reply;
+            if (onUpdate) onUpdate(cleanedPartial);
+          }
+        } else {
+          const response = await conversation.sendMessage(userText);
+          rawMessage = response;
+          reply = extractLiteRTText(response);
+          if (reply && onUpdate) onUpdate(sanitizeModelReply(reply) || reply);
+        }
+      } else {
+        throw err;
+      }
     }
 
     reply = sanitizeModelReply(reply) || reply.trim();
@@ -1849,30 +1882,59 @@ export class AiChat {
   }
 
   async _completeOnceLiteRT(userText, onUpdate) {
-    const conversation = await this._ensureLiteRTConversation(false);
+    let conversation = await this._ensureLiteRTConversation(false);
     let reply = '';
 
-    if (typeof conversation.sendMessageStreaming === 'function') {
-      // Do not `for await` the raw return value — it is a ReadableStream, and
-      // Safari cannot async-iterate ReadableStream (see iterateMessageStream).
-      for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText))) {
-        const delta = extractLiteRTText(chunk);
-        if (!delta) continue;
-        // Streaming chunks may be cumulative or incremental — prefer append of delta text pieces.
-        if (Array.isArray(chunk?.content)) {
-          reply += delta;
-        } else if (delta.startsWith(reply)) {
-          reply = delta;
-        } else {
-          reply += delta;
+    try {
+      if (typeof conversation.sendMessageStreaming === 'function') {
+        // Do not `for await` the raw return value — it is a ReadableStream, and
+        // Safari cannot async-iterate ReadableStream (see iterateMessageStream).
+        for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText))) {
+          const delta = extractLiteRTText(chunk);
+          if (!delta) continue;
+          // Streaming chunks may be cumulative or incremental — prefer append of delta text pieces.
+          if (Array.isArray(chunk?.content)) {
+            reply += delta;
+          } else if (delta.startsWith(reply)) {
+            reply = delta;
+          } else {
+            reply += delta;
+          }
+          const cleanedPartial = sanitizeModelReply(reply) || reply;
+          if (onUpdate) onUpdate(cleanedPartial);
         }
-        const cleanedPartial = sanitizeModelReply(reply) || reply;
-        if (onUpdate) onUpdate(cleanedPartial);
+      } else {
+        const response = await conversation.sendMessage(userText);
+        reply = extractLiteRTText(response);
+        if (reply && onUpdate) onUpdate(sanitizeModelReply(reply) || reply);
       }
-    } else {
-      const response = await conversation.sendMessage(userText);
-      reply = extractLiteRTText(response);
-      if (reply && onUpdate) onUpdate(sanitizeModelReply(reply) || reply);
+    } catch (err: any) {
+      if (/too many tokens|context.*exceeded|out of memory|buffer overflow/i.test(err?.message || '')) {
+        console.warn('[AiChat] Token limit reached in LiteRT conversation; resetting conversation context.', err);
+        conversation = await this._ensureLiteRTConversation(true);
+        reply = '';
+        if (typeof conversation.sendMessageStreaming === 'function') {
+          for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText))) {
+            const delta = extractLiteRTText(chunk);
+            if (!delta) continue;
+            if (Array.isArray(chunk?.content)) {
+              reply += delta;
+            } else if (delta.startsWith(reply)) {
+              reply = delta;
+            } else {
+              reply += delta;
+            }
+            const cleanedPartial = sanitizeModelReply(reply) || reply;
+            if (onUpdate) onUpdate(cleanedPartial);
+          }
+        } else {
+          const response = await conversation.sendMessage(userText);
+          reply = extractLiteRTText(response);
+          if (reply && onUpdate) onUpdate(sanitizeModelReply(reply) || reply);
+        }
+      } else {
+        throw err;
+      }
     }
 
     reply = sanitizeModelReply(reply) || reply.trim();

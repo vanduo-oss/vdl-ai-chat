@@ -2,12 +2,26 @@
 
 Headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails and CSP-safe markdown.
 
+This is a **Labs sibling repo**, not a public npm package. Consume it via `link:` /
+workspace next to [Vanduo Labs](https://github.com/vanduo-oss/labs).
+
 **Source of truth:** [`openspec/`](./openspec/). This README is a short usage guide.
 
-## Install
+## Install (sibling link)
 
 ```bash
-pnpm add @vanduo-oss/vdl-ai-chat
+git clone https://github.com/vanduo-oss/vdl-ai-chat.git
+cd vdl-ai-chat && pnpm install && pnpm run build
+```
+
+In the host `package.json`:
+
+```json
+{
+  "dependencies": {
+    "@vanduo-oss/vdl-ai-chat": "link:../vdl-ai-chat"
+  }
+}
 ```
 
 Recommended default model: **Gemma 4 E2B LiteRT** (`gemma-4-E2B-it-web`). Requires a WebGPU-capable browser (Chrome/Edge; Apple Silicon M-series is the local QA baseline).

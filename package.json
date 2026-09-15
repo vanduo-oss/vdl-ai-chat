@@ -1,6 +1,7 @@
 {
   "name": "@vanduo-oss/vdl-ai-chat",
   "version": "0.1.1",
+  "private": true,
   "description": "Vanduo Labs headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails",
   "type": "module",
   "homepage": "https://github.com/vanduo-oss/vdl-ai-chat#readme",
@@ -13,9 +14,6 @@
   },
   "license": "MIT",
   "author": "vanduo-oss",
-  "publishConfig": {
-    "access": "public"
-  },
   "keywords": [
     "vanduo",
     "ai-chat",
@@ -61,7 +59,6 @@
   "scripts": {
     "build": "node scripts/clean-dist.mjs && vite build && tsc -p tsconfig.build.json",
     "prepack": "pnpm run build",
-    "prepublishOnly": "pnpm run build && pnpm run test:ci",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.mjs\"",
