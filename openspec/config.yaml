@@ -1,16 +1,17 @@
 schema: spec-driven
 
 context: |
-  Package: @vanduo-oss/vdl-ai-chat (MIT, vanduo-oss org, publishable).
+  Package: @vanduo-oss/vdl-ai-chat (MIT, vanduo-oss org). Labs sibling repo —
+  private / not published on npm; consume via link: beside Labs.
   Headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails and
   CSP-safe markdown. Zero runtime npm deps; heavy runtimes load via CDN or
   host-injected loaders (CSP). Stack: TypeScript ESM library, vite lib build,
   vitest. OpenSpec is the source of truth; README is a short usage guide.
   Recommended default model: Gemma 4 E2B LiteRT (`gemma-4-E2B-it-web`, WebGPU).
-  Dual QA gates: CI runs format/lint/typecheck/test:ci/build/pack/audit (no
+  Dual QA gates: CI runs format/lint/typecheck/test:ci/build/audit (no
   WebGPU inference); local `pnpm test:local` adds Playwright Gemma E2B load+generate.
-  GitHub Actions CI is allowed and required for public releases.
-  ts-school dogfoods via file: or npm ^0.1.1 and must stay API-compatible.
+  GitHub Actions CI is allowed for the default branch.
+  Hosts (e.g. Labs, ts-school) dogfood via link:/file: and must stay API-compatible.
 
 rules:
   proposal:

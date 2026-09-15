@@ -1590,7 +1590,9 @@ export class AiChat {
 
     try {
       if (typeof conversation.sendMessageStreaming === 'function') {
-        for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText))) {
+        for await (const chunk of iterateMessageStream(
+          conversation.sendMessageStreaming(userText),
+        )) {
           rawMessage = chunk;
           const delta = extractLiteRTText(chunk);
           if (!delta) continue;
@@ -1611,13 +1613,20 @@ export class AiChat {
         if (reply && onUpdate) onUpdate(sanitizeModelReply(reply) || reply);
       }
     } catch (err: any) {
-      if (/too many tokens|context.*exceeded|out of memory|buffer overflow/i.test(err?.message || '')) {
-        console.warn('[AiChat] Token limit reached in LiteRT conversation; resetting conversation context.', err);
+      if (
+        /too many tokens|context.*exceeded|out of memory|buffer overflow/i.test(err?.message || '')
+      ) {
+        console.warn(
+          '[AiChat] Token limit reached in LiteRT conversation; resetting conversation context.',
+          err,
+        );
         conversation = await this._ensureLiteRTConversation(true);
         reply = '';
         rawMessage = null;
         if (typeof conversation.sendMessageStreaming === 'function') {
-          for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText))) {
+          for await (const chunk of iterateMessageStream(
+            conversation.sendMessageStreaming(userText),
+          )) {
             rawMessage = chunk;
             const delta = extractLiteRTText(chunk);
             if (!delta) continue;
@@ -1889,7 +1898,9 @@ export class AiChat {
       if (typeof conversation.sendMessageStreaming === 'function') {
         // Do not `for await` the raw return value — it is a ReadableStream, and
         // Safari cannot async-iterate ReadableStream (see iterateMessageStream).
-        for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText))) {
+        for await (const chunk of iterateMessageStream(
+          conversation.sendMessageStreaming(userText),
+        )) {
           const delta = extractLiteRTText(chunk);
           if (!delta) continue;
           // Streaming chunks may be cumulative or incremental — prefer append of delta text pieces.
@@ -1909,12 +1920,19 @@ export class AiChat {
         if (reply && onUpdate) onUpdate(sanitizeModelReply(reply) || reply);
       }
     } catch (err: any) {
-      if (/too many tokens|context.*exceeded|out of memory|buffer overflow/i.test(err?.message || '')) {
-        console.warn('[AiChat] Token limit reached in LiteRT conversation; resetting conversation context.', err);
+      if (
+        /too many tokens|context.*exceeded|out of memory|buffer overflow/i.test(err?.message || '')
+      ) {
+        console.warn(
+          '[AiChat] Token limit reached in LiteRT conversation; resetting conversation context.',
+          err,
+        );
         conversation = await this._ensureLiteRTConversation(true);
         reply = '';
         if (typeof conversation.sendMessageStreaming === 'function') {
-          for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText))) {
+          for await (const chunk of iterateMessageStream(
+            conversation.sendMessageStreaming(userText),
+          )) {
             const delta = extractLiteRTText(chunk);
             if (!delta) continue;
             if (Array.isArray(chunk?.content)) {

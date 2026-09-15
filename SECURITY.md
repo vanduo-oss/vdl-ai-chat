@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-We support the latest published `0.x` release of `@vanduo-oss/vdl-ai-chat` on npm.
+We support the latest `0.x` release of `@vanduo-oss/vdl-ai-chat` on the default branch (sibling `link:` consumption; not published on npm).
 
 ## Reporting a vulnerability
 
