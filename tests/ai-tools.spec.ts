@@ -108,7 +108,7 @@ describe('AiChat tool calling', () => {
 
     const execute = vi.fn(async () => ({ ok: true }));
     const final = await chat.generateWithTools('ping', { execute });
-    expect(execute).toHaveBeenCalledWith('ping', { n: 1 });
+    expect(execute).toHaveBeenCalledWith('ping', { n: 1 }, { signal: expect.any(AbortSignal) });
     expect(final).toBe('pong');
   });
 
@@ -153,9 +153,8 @@ describe('AiChat tool calling', () => {
     });
     const final = await chat.generateWithTools('go', { execute, onTool, maxRounds: 2 });
     expect(final).toBe('done');
-    expect(execute).toHaveBeenCalled();
-    expect(onTool.mock.calls.some((c) => c[0].result?.error === 'tool.execute_failed')).toBe(true);
-    expect((chat as any)._reloadEngine).toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(onTool.mock.calls.some((c) => c[0].result?.error === 'tool.args.schema')).toBe(true);
   });
 
   it('throws when tool loop returns empty final reply', async () => {
@@ -201,7 +200,7 @@ describe('AiChat tool calling', () => {
     const chat = new AiChat({ modelId: 'gemma-4-E2B-it-web' });
     chat._isLoaded = true;
     chat.engine = {};
-    await expect(chat.generateWithTools('hi', {})).rejects.toThrow(/execute/);
+    await expect(chat.generateWithTools('hi', {} as any)).rejects.toThrow(/execute/);
     await expect(chat.generateWithTools('hi', { execute: async () => ({}) })).rejects.toThrow(
       /No tools registered/,
     );

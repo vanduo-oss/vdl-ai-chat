@@ -64,3 +64,10 @@ export {
 } from './guardrails/core.js';
 export type { GuardrailResult, GuardrailError } from './guardrails/core.js';
 export type { ToolDefinition } from './guardrails/tools.js';
+
+export type { GenerateOptions, ContextSource, ContextStatus, ChatMessage } from './session.js';
+export type { AiChatOptions } from './ai-chat.js';
+
+export { NEW_MODEL_IDS, BASELINE_MODEL_IDS } from './model-catalog.js';
+export type { ModelOption, ModelArtifact } from './model-catalog.js';
+export type { TransformersEngine, TransformersRuntime } from './transformers-runtime.js';

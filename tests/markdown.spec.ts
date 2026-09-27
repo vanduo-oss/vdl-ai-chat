@@ -60,4 +60,10 @@ const x = 1;
     expect(html).toContain('<strong>');
     expect(html).toContain('href="https://vanduo.dev"');
   });
+
+  it('handles one-cell table-like text and empty or unclosed code fences', () => {
+    expect(labsMarkdownToHtml('| single |\n| --- |')).not.toContain('<table');
+    expect(labsMarkdownToHtml('```\n```')).toContain('<pre><code></code></pre>');
+    expect(labsMarkdownToHtml('```js\nunfinished code')).toContain('unfinished code');
+  });
 });

@@ -140,6 +140,7 @@ describe('load progress helpers', () => {
         .freezeHint,
     ).toBe('custom freeze');
     expect(describeLoadProgress({ stage: 'compiling', source: 'local' }).source).toBe('local');
+    expect(describeLoadProgress({ stage: 'compiling' }).source).toBe('unknown');
     expect(describeLoadProgress({ stage: 'ready', message: 'All set' }).progressText).toBe(
       'All set',
     );

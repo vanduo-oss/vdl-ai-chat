@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MODEL_OPTIONS } from '../src/model-catalog.js';
 
 async function importAiChat() {
   vi.resetModules();
@@ -26,8 +27,30 @@ function stubBrowserStorageAndFetch(opts: { localModel?: boolean; webllmLocal?: 
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       const u = String(url);
-      if (opts.localModel && init?.method === 'HEAD' && u.includes('/models/')) {
-        return { ok: true, status: 200, headers: { get: () => null } };
+      if ((opts.localModel || opts.webllmLocal) && u.endsWith('/.labs-model.json')) {
+        const modelId = decodeURIComponent(u.split('/models/')[1].split('/')[0]);
+        const model = MODEL_OPTIONS.find((option) => option.id === modelId);
+        return new Response(
+          JSON.stringify({
+            modelId,
+            revision: model?.revision,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (
+        (opts.localModel || opts.webllmLocal) &&
+        init?.method === 'HEAD' &&
+        u.includes('/models/')
+      ) {
+        const modelId = decodeURIComponent(u.split('/models/')[1].split('/')[0]);
+        const artifactPath = decodeURIComponent(u.split('/resolve/main/')[1] || '');
+        const model = MODEL_OPTIONS.find((option) => option.id === modelId);
+        const artifact = model?.artifacts?.find((entry) => entry.path === artifactPath);
+        return new Response(null, {
+          status: 200,
+          headers: { 'Content-Length': String(artifact?.bytes || 0) },
+        });
       }
       if (opts.webllmLocal && u.includes('mlc-chat-config.json')) {
         return { ok: true, status: 200, headers: { get: () => null } };
@@ -35,7 +58,7 @@ function stubBrowserStorageAndFetch(opts: { localModel?: boolean; webllmLocal?: 
       if (init?.method === 'HEAD' || u.includes('mlc-chat-config')) {
         return { ok: false, status: 404, headers: { get: () => null } };
       }
-      // Local-model HEAD success still GETs `/models/...`; serve mock bytes.
+      // Local-model validation HEADs every manifest artifact, then GETs the model bytes.
       // Unprobed `/models/` paths (no localModel) should 404 so HF URLs are used.
       if (!opts.localModel && u.includes('/models/')) {
         return { ok: false, status: 404, headers: { get: () => null } };
@@ -257,11 +280,11 @@ describe('AiChat load + generate (mocked LiteRT)', () => {
     await chat.load();
     const partials: string[] = [];
     const reply = await chat.generate('hi', (t) => partials.push(t));
-    expect(reply).toMatch(/tutor role|not welcome/i);
+    expect(reply).toMatch(/can't help|safer alternative/i);
     expect(partials.at(-1)).toBe(reply);
   });
 
-  it('uses local LiteRT model URL when HEAD succeeds', async () => {
+  it('uses the revision-pinned local LiteRT mirror after validating its manifest', async () => {
     stubBrowserStorageAndFetch({ localModel: true });
     vi.stubGlobal('location', { origin: 'http://localhost:5173' });
     const { AiChat } = await importAiChat();
@@ -272,17 +295,26 @@ describe('AiChat load + generate (mocked LiteRT)', () => {
     });
     await chat.load();
     expect(chat.isLoaded()).toBe(true);
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(
+          ([url, init]) =>
+            String(url).includes('/models/gemma-4-E2B-it-web/resolve/main/') &&
+            init?.method === 'HEAD',
+        ),
+    ).toBe(true);
     // second load hits probe cache
     await chat.dispose();
     await chat.load();
   });
 
-  it('falls back when local LiteRT HEAD probe throws', async () => {
+  it('falls back when the local LiteRT manifest probe throws', async () => {
     stubBrowserStorageAndFetch();
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (url: string, init?: RequestInit) => {
-        if (init?.method === 'HEAD' && String(url).includes('/models/')) {
+      vi.fn(async (url: string, _init?: RequestInit) => {
+        if (String(url).endsWith('/.labs-model.json')) {
           throw new Error('offline');
         }
         return {
@@ -316,6 +348,40 @@ describe('AiChat load + generate (mocked LiteRT)', () => {
     });
     await chat.load();
     expect(chat.isLoaded()).toBe(true);
+  });
+
+  it('rejects an SPA HTML fallback as a local model manifest', async () => {
+    stubBrowserStorageAndFetch();
+    const original = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url, init) =>
+        String(url).endsWith('/.labs-model.json')
+          ? new Response(null, { status: 200, headers: { 'Content-Type': 'text/html' } })
+          : original(url, init),
+      ),
+    );
+    const { AiChat } = await importAiChat();
+    const mod = makeLiteRTModule();
+    const chat = new AiChat({ loadLiteRT: async () => mod });
+    await chat.load();
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(
+          ([url, init]) => String(url).includes('huggingface.co') && init?.method !== 'HEAD',
+        ),
+    ).toBe(true);
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(
+          ([url, init]) =>
+            String(url).startsWith('/models/') &&
+            !String(url).endsWith('/.labs-model.json') &&
+            init?.method !== 'HEAD',
+        ),
+    ).toBe(false);
   });
 
   it('rejects generate when not loaded and blocks jailbreak input', async () => {
@@ -446,11 +512,11 @@ describe('AiChat load + generate (mocked LiteRT)', () => {
     expect((mod._engine as any).unload).toHaveBeenCalled();
   });
 
-  it('falls back when native Preface.tools is rejected', async () => {
+  it('requires explicit XML when native Preface.tools is rejected', async () => {
     const { AiChat } = await importAiChat();
     const mod = makeLiteRTModule();
     let calls = 0;
-    mod._engine.createConversation = vi.fn(async (opts) => {
+    mod._engine.createConversation = vi.fn(async (opts?: any) => {
       calls += 1;
       if (opts?.preface?.tools) throw new Error('no tools');
       return mod._conversation;
@@ -461,9 +527,8 @@ describe('AiChat load + generate (mocked LiteRT)', () => {
       loadLiteRT: async () => mod,
     });
     chat.registerTools([{ name: 'ping', description: 'p', parameters: { type: 'object' } }]);
-    await chat.load();
-    expect(calls).toBeGreaterThanOrEqual(2);
-    expect(chat._nativeToolsSupported).toBe(false);
+    await expect(chat.load()).rejects.toThrow('no tools');
+    expect(calls).toBe(1);
   });
 
   it('ignores conversation teardown errors on dispose', async () => {
@@ -514,6 +579,49 @@ describe('AiChat WebLLM path (mocked)', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it('retains runtime model fields while applying pinned local URLs', async () => {
+    stubBrowserStorageAndFetch({ webllmLocal: true });
+    const { AiChat } = await importAiChat();
+    const id = 'Qwen3.5-0.8B-q4f16_1-MLC';
+    const runtimeRecord = {
+      model: 'https://huggingface.co/mlc-ai/Qwen3.5-0.8B-q4f16_1-MLC',
+      model_id: id,
+      model_lib: 'https://example.test/model.wasm',
+      vram_required_MB: 1629.49,
+      low_resource_required: true,
+      overrides: { context_window_size: 4096, max_history_size: 1 },
+    };
+    const engine = {};
+    const CreateMLCEngine = vi.fn(
+      async (
+        _modelId: string,
+        _config: { appConfig?: { model_list: Record<string, unknown>[] } },
+      ) => engine,
+    );
+    const chat = new AiChat({
+      modelId: id,
+      loadWebLLM: async () => ({
+        CreateMLCEngine,
+        prebuiltAppConfig: { model_list: [runtimeRecord] },
+      }),
+    });
+    const sources: string[] = [];
+    chat.onProgress(({ source }) => {
+      if (source) sources.push(source);
+    });
+    await chat.load();
+    expect(sources).toContain('local');
+    const config = CreateMLCEngine.mock.calls[0]?.[1];
+    expect(config?.appConfig?.model_list[0]).toMatchObject({
+      vram_required_MB: 1629.49,
+      low_resource_required: true,
+      required_features: ['shader-f16'],
+      overrides: { context_window_size: 4096, max_history_size: 1 },
+    });
+    expect(config?.appConfig?.model_list[0].model).toContain(`/models/${id}/resolve/main/`);
+    await chat.dispose();
   });
 
   it('loads and generates via CreateMLCEngine', async () => {
@@ -620,6 +728,34 @@ describe('AiChat WebLLM path (mocked)', () => {
     });
     await chat.load();
     await expect(chat.generate('hi')).rejects.toThrow(/empty response/);
+  });
+
+  it('clears a normal WebLLM conversation without reloading model weights', async () => {
+    stubBrowserStorageAndFetch();
+    const engine = {
+      chat: {
+        completions: {
+          create: vi.fn(async () =>
+            (async function* () {
+              yield { choices: [{ delta: { content: 'ok' } }] };
+            })(),
+          ),
+        },
+      },
+      reload: vi.fn(async () => {}),
+      resetChat: vi.fn(async () => {}),
+    };
+    const { AiChat } = await importAiChat();
+    const chat = new AiChat({
+      modelId: 'Qwen3-0.6B-q4f16_1-MLC',
+      loadWebLLM: async () => ({ CreateMLCEngine: vi.fn(async () => engine) }),
+    });
+    await chat.load();
+    chat.reset();
+    await chat.generate('hi');
+    expect(engine.resetChat).toHaveBeenCalledOnce();
+    expect(engine.reload).not.toHaveBeenCalled();
+    await chat.dispose();
   });
 
   it('reload without reload() uses resetChat', async () => {

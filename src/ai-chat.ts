@@ -14,6 +14,18 @@ import {
   formatXmlToolResult,
 } from './guardrails/llm.js';
 import { toGuardrailError } from './guardrails/core.js';
+import {
+  abortError,
+  boundedInteger,
+  estimateTokens,
+  selectContext,
+  sourceContext,
+  runBoundedTool,
+  type GenerateOptions,
+  type ChatMessage,
+} from './session.js';
+import { cancelRuntime, disposeRuntime } from './runtime.js';
+import type { TransformersRuntime, TransformersEngine } from './transformers-runtime.js';
 
 /**
  * Headless AiChat — Gemma via LiteRT-LM / WebLLM in the browser (WebGPU).
@@ -29,8 +41,8 @@ import { toGuardrailError } from './guardrails/core.js';
 // ═══════════════════════════════════════════════════════════════════════
 
 const CDN = {
-  webllm: 'https://esm.run/@mlc-ai/web-llm',
-  litert: 'https://cdn.jsdelivr.net/npm/@litert-lm/core/+esm',
+  webllm: 'https://esm.run/@mlc-ai/web-llm@0.2.85',
+  litert: 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.17.1/+esm',
 };
 
 export const VDL_AI_CHAT_VERSION = '0.1.1';
@@ -43,176 +55,9 @@ export const TOOLS_UNSUPPORTED_ERROR =
 let _webllmModule: any = null;
 let _litertModule: any = null;
 
-export const MODEL_GROUPS = [
-  { id: 'gemma4', label: 'Gemma 4' },
-  { id: 'qwen3', label: 'Qwen 3' },
-  { id: 'experimental', label: 'Experimental' },
-  { id: 'optional', label: 'Optional (WebLLM)' },
-];
-
-/** ~GiB helper for model size metadata (weights on disk / download). */
+import { MODEL_OPTIONS } from './model-catalog.js';
+export { MODEL_OPTIONS, MODEL_GROUPS } from './model-catalog.js';
 const GiB = 1024 ** 3;
-
-/**
- * LiteRT support kinds (honest Labs labels — do not claim Google web support for non-official):
- * - web-official: listed in LiteRT-LM JS docs
- * - portable: community-verified general .litertlm in browser
- * - spike: Labs experimental probe; may fail to load
- */
-export const MODEL_OPTIONS = [
-  {
-    id: 'gemma-4-E2B-it-web',
-    label: 'Gemma 4 E2B (~2.0GB) - Fast (Default)',
-    tier: 'Fast',
-    group: 'gemma4',
-    family: 'gemma4',
-    backend: 'litert',
-    litertKind: 'web-official',
-    requires: ['shader-f16'],
-    approxBytes: 2.0 * GiB,
-    maxNumTokens: 8192,
-    modelFile: 'gemma-4-E2B-it-web.litertlm',
-    modelUrl:
-      'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.litertlm',
-  },
-  {
-    id: 'gemma-4-E4B-it-web',
-    label: 'Gemma 4 E4B (~2.5GB) - Quality',
-    tier: 'Quality',
-    group: 'gemma4',
-    family: 'gemma4',
-    backend: 'litert',
-    litertKind: 'web-official',
-    requires: ['shader-f16'],
-    experimental: true,
-    approxBytes: 2.5 * GiB,
-    maxNumTokens: 8192,
-    modelFile: 'gemma-4-E4B-it-web.litertlm',
-    modelUrl:
-      'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.litertlm',
-  },
-  {
-    // PrefillDecode spike: kept in the catalog for honesty / eval probing, but load is
-    // blocked — see LITERT_PREFILLDECODE_UNSUPPORTED_REASON.
-    id: 'qwen3-0.6B-litert',
-    label: 'Qwen3 0.6B LiteRT (~0.6GB) - Spike',
-    tier: 'Explorer',
-    group: 'experimental',
-    family: 'qwen3',
-    backend: 'litert',
-    litertKind: 'spike',
-    litertRuntime: 'prefilldecode-unsupported',
-    requires: [],
-    experimental: true,
-    approxBytes: 0.6 * GiB,
-    maxNumTokens: 4096,
-    disableThinking: true,
-    modelFile: 'Qwen3-0.6B.litertlm',
-    modelUrl: 'https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B.litertlm',
-  },
-  {
-    id: 'ministral-3-3B-litert',
-    label: 'Ministral 3 3B LiteRT (~2.2GB) - Spike',
-    tier: 'Explorer',
-    group: 'experimental',
-    family: 'ministral',
-    backend: 'litert',
-    litertKind: 'spike',
-    litertRuntime: 'prefilldecode-unsupported',
-    requires: ['shader-f16'],
-    experimental: true,
-    approxBytes: 2.2 * GiB,
-    maxNumTokens: 4096,
-    modelFile: 'model.litertlm',
-    modelUrl:
-      'https://huggingface.co/litert-community/Ministral-3-3B-Reasoning-2512/resolve/main/model.litertlm',
-  },
-  {
-    id: 'Qwen3-0.6B-q4f16_1-MLC',
-    label: 'Qwen3 0.6B MLC (~0.5GB) - Tiny',
-    tier: 'Tiny',
-    group: 'qwen3',
-    family: 'qwen3',
-    backend: 'webllm',
-    requires: ['shader-f16'],
-    approxBytes: 0.5 * GiB,
-    disableThinking: true,
-    fallbackId: 'Qwen3-0.6B-q4f32_1-MLC',
-  },
-  {
-    id: 'gemma-4-E2B-it-q4f16_1-MLC',
-    label: 'Gemma 4 E2B MLC (~2.7GB) - Experimental',
-    tier: 'Experimental',
-    group: 'experimental',
-    family: 'gemma4',
-    backend: 'webllm',
-    requires: ['shader-f16'],
-    experimental: true,
-    approxBytes: 2.7 * GiB,
-    // WebLLM allows only one of context_window_size / sliding_window_size > 0.
-    // mlc-chat-config ships both (4096 + 512); prefer fixed context for this build.
-    // Native multi-turn context is unreliable on this community MLC package.
-    overrides: {
-      context_window_size: 4096,
-      sliding_window_size: -1,
-    },
-    modelUrl: 'https://huggingface.co/welcoma/gemma-4-E2B-it-q4f16_1-MLC',
-    modelLibUrl:
-      'https://huggingface.co/welcoma/gemma-4-E2B-it-q4f16_1-MLC/resolve/main/libs/gemma-4-E2B-it-q4f16_1-MLC-webgpu.wasm',
-  },
-  {
-    id: 'gemma-4-E4B-it-q4f16_1-MLC',
-    label: 'Gemma 4 E4B MLC (~4.0GB) - Experimental',
-    tier: 'Experimental',
-    group: 'experimental',
-    family: 'gemma4',
-    backend: 'webllm',
-    requires: ['shader-f16'],
-    experimental: true,
-    approxBytes: 4.0 * GiB,
-    overrides: {
-      context_window_size: 4096,
-      sliding_window_size: -1,
-    },
-    modelUrl: 'https://huggingface.co/welcoma/gemma-4-E4B-it-q4f16_1-MLC',
-    modelLibUrl:
-      'https://huggingface.co/welcoma/gemma-4-E4B-it-q4f16_1-MLC/resolve/main/libs/gemma-4-E4B-it-q4f16_1-MLC-webgpu.wasm',
-  },
-  {
-    id: 'Qwen3-1.7B-q4f16_1-MLC',
-    label: 'Qwen3 1.7B (~1.1GB) - Balanced',
-    tier: 'Balanced',
-    group: 'optional',
-    family: 'qwen3',
-    backend: 'webllm',
-    requires: ['shader-f16'],
-    approxBytes: 1.1 * GiB,
-    disableThinking: true,
-    fallbackId: 'Qwen3-1.7B-q4f32_1-MLC',
-  },
-  {
-    id: 'Phi-4-mini-instruct-q4f16_1-MLC',
-    label: 'Phi-4 mini (~2.5GB) - Alt Quality',
-    tier: 'Alt Quality',
-    group: 'optional',
-    family: 'phi4',
-    backend: 'webllm',
-    requires: ['shader-f16'],
-    approxBytes: 2.5 * GiB,
-    fallbackId: 'Phi-4-mini-instruct-q4f32_1-MLC',
-  },
-  {
-    id: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC',
-    label: 'Qwen2.5 Coder 1.5B (~1.6GB) - Coder',
-    tier: 'Coder',
-    group: 'optional',
-    family: 'qwen2.5',
-    backend: 'webllm',
-    requires: [],
-    approxBytes: 1.6 * GiB,
-    fallbackId: 'Qwen2.5-Coder-1.5B-Instruct-q4f32_1-MLC',
-  },
-];
 
 /** Suggested Tiny model when load-capacity heuristics say the device is weak. */
 export const TINY_MODEL_ID = 'Qwen3-0.6B-q4f16_1-MLC';
@@ -516,7 +361,6 @@ const DEFAULT_GENERATION_CONFIG = {
 const GEMMA4_GENERATION_CONFIG = {
   ...DEFAULT_GENERATION_CONFIG,
   max_tokens: 768,
-  enable_thinking: false,
 };
 
 function generationConfigForModel(modelId) {
@@ -525,14 +369,9 @@ function generationConfigForModel(modelId) {
   const cfg: Record<string, any> = wantsGemmaBudget
     ? { ...GEMMA4_GENERATION_CONFIG }
     : { ...DEFAULT_GENERATION_CONFIG };
-  if (
-    option?.disableThinking ||
-    option?.family === 'qwen3' ||
-    option?.family === 'gemma4' ||
-    option?.group === 'gemma4'
-  ) {
-    cfg.enable_thinking = false;
-  }
+  // WebLLM 0.2.85 reads this from extra_body and supports it for Qwen3.
+  if (option?.disableThinking) cfg.extra_body = { enable_thinking: false };
+  if (option?.reasoning === 'required') cfg.max_tokens = 2048;
   return cfg;
 }
 
@@ -628,6 +467,16 @@ export function sanitizeModelReply(text) {
   out = out.replace(/<\/?turn\|>/g, '');
   out = out.replace(/<\|turn>(?:user|model|system)?/g, '');
   return out.trim();
+}
+
+/** Hold unfinished thought channels until they close; never display raw fallback text. */
+function visibleGenerationText(text: string): string {
+  return sanitizeModelReply(
+    text
+      .replace(/<think>(?![\s\S]*<\/think>)[\s\S]*$/gi, '')
+      .replace(/<\|think\|>(?![\s\S]*<\|\/think\|>)[\s\S]*$/gi, '')
+      .replace(/<\|channel>thought(?![\s\S]*<channel\|>)[\s\S]*$/gi, ''),
+  );
 }
 
 /**
@@ -1024,6 +873,57 @@ export async function loadLiteRTModelBytes(url: string, options: Record<string, 
 
 const localModelProbeCache = new Map();
 
+/** Validate an app-owned mirror as a complete, revision-pinned set before loading it. */
+async function hasValidatedLocalModel(option) {
+  if (!option?.id) return false;
+  if (localModelProbeCache.has(option.id)) return localModelProbeCache.get(option.id);
+
+  const localRoot = `/models/${option.id}`;
+  try {
+    const response = await fetch(`${localRoot}/.labs-model.json`, {
+      method: 'GET',
+      cache: 'no-store',
+    });
+    const contentType = response.headers?.get?.('content-type') || '';
+    if (!response.ok || /text\/html/i.test(contentType)) {
+      localModelProbeCache.set(option.id, false);
+      return false;
+    }
+
+    const marker = await response.json();
+    if (marker?.modelId !== option.id || (option.revision && marker.revision !== option.revision)) {
+      localModelProbeCache.set(option.id, false);
+      return false;
+    }
+
+    for (const artifact of option.artifacts || []) {
+      const path = artifact.path
+        .split('/')
+        .map((part) => encodeURIComponent(part))
+        .join('/');
+      const file = await fetch(`${localRoot}/resolve/main/${path}`, {
+        method: 'HEAD',
+        cache: 'no-store',
+      });
+      const fileType = file.headers?.get?.('content-type') || '';
+      const bytes = Number(file.headers?.get?.('content-length'));
+      if (
+        !file.ok ||
+        /text\/html/i.test(fileType) ||
+        (Number.isFinite(artifact.bytes) && artifact.bytes > 0 && bytes !== artifact.bytes)
+      ) {
+        localModelProbeCache.set(option.id, false);
+        return false;
+      }
+    }
+    localModelProbeCache.set(option.id, true);
+    return true;
+  } catch {
+    localModelProbeCache.set(option.id, false);
+    return false;
+  }
+}
+
 function absoluteUrl(pathname) {
   if (typeof location === 'undefined' || !location?.origin) return pathname;
   return new URL(pathname, location.origin).href;
@@ -1043,28 +943,9 @@ async function resolveModelSource(option) {
 
   const localRoot = `/models/${option.id}`;
   const localModelUrl = absoluteUrl(`${localRoot}/resolve/main/`);
-  const localLibUrl = absoluteUrl(`${localRoot}/libs/${option.id}-webgpu.wasm`);
-
-  if (localModelProbeCache.has(option.id)) {
-    const hit = localModelProbeCache.get(option.id);
-    return hit
-      ? { modelUrl: localModelUrl, modelLibUrl: localLibUrl, local: true }
-      : { modelUrl: option.modelUrl, modelLibUrl: option.modelLibUrl, local: false };
-  }
-
-  try {
-    const probe = await fetch(`${localRoot}/mlc-chat-config.json`, {
-      method: 'GET',
-      cache: 'no-store',
-    });
-    const ok = probe.ok;
-    localModelProbeCache.set(option.id, ok);
-    if (ok) {
-      return { modelUrl: localModelUrl, modelLibUrl: localLibUrl, local: true };
-    }
-  } catch {
-    localModelProbeCache.set(option.id, false);
-  }
+  const localLibUrl = absoluteUrl(`/webllm-wasm/${option.id}.wasm`);
+  if (await hasValidatedLocalModel(option))
+    return { modelUrl: localModelUrl, modelLibUrl: localLibUrl, local: true };
 
   return { modelUrl: option.modelUrl, modelLibUrl: option.modelLibUrl, local: false };
 }
@@ -1073,21 +954,9 @@ async function resolveLiteRTModelUrl(option) {
   if (!option?.modelUrl) return option?.modelUrl;
   const fileName = option.modelFile || pathBasename(option.modelUrl);
   const localPath = `/models/${option.id}/${fileName}`;
-
-  if (localModelProbeCache.has(option.id)) {
-    return localModelProbeCache.get(option.id) ? absoluteUrl(localPath) : option.modelUrl;
-  }
-
-  try {
-    const probe = await fetch(localPath, { method: 'HEAD', cache: 'no-store' });
-    const ok = probe.ok;
-    localModelProbeCache.set(option.id, ok);
-    if (ok) {
-      console.warn(`[AiChat] Using local LiteRT model for ${option.id}: ${localPath}`);
-      return absoluteUrl(localPath);
-    }
-  } catch {
-    localModelProbeCache.set(option.id, false);
+  if (await hasValidatedLocalModel(option)) {
+    console.warn(`[AiChat] Using local LiteRT model for ${option.id}: ${localPath}`);
+    return absoluteUrl(localPath);
   }
 
   return option.modelUrl;
@@ -1102,42 +971,73 @@ function pathBasename(urlOrPath) {
 function modelSupportsSystemRole(modelId) {
   // LiteRT conversations accept a system preface (full Vanduo Labs / FOSS prompt).
   // Community Gemma 4 MLC (`gemma_instruction`) only defines user/model roles —
-  // injecting system (or folding it into the user turn) truncates / breaks replies.
-  // For those models we omit system and rely on deterministic LLM guardrails only.
+  // These experimental templates require instructions folded into the first user turn.
   if (isLiteRTModel(modelId)) return true;
   if (isWebLLMGemmaMlC(modelId)) return false;
   return true;
 }
 
-function buildChatPayload(modelId, historyMessages) {
+function buildChatPayload(modelId, historyMessages, systemPrompt = buildChatSystemPrompt()) {
   // Always copy — WebLLM/request holders must not share our mutable history array.
   const history = historyMessages.map((message) => ({
     role: message.role,
     content: message.content,
   }));
   if (!modelSupportsSystemRole(modelId)) {
+    const firstUser = history.find((message) => message.role === 'user');
+    if (firstUser) firstUser.content = `${systemPrompt}\n\nUser message:\n${firstUser.content}`;
     return history;
   }
-  return [{ role: 'system', content: buildChatSystemPrompt() }, ...history];
+  return [{ role: 'system', content: systemPrompt }, ...history];
 }
 
-async function buildModelAppConfig(modelId) {
+/** Stop waiting for a model load promptly, and release engines that arrive late. */
+async function awaitAbortableLoad<T>(
+  pending: Promise<T>,
+  signal: AbortSignal,
+  releaseLate: (value: T) => void,
+): Promise<T> {
+  let onAbort!: () => void;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(abortError());
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([pending, aborted]);
+  } catch (error) {
+    if (signal.aborted) void pending.then(releaseLate, () => {});
+    throw error;
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+  }
+}
+
+async function buildModelAppConfig(modelId, runtimeAppConfig) {
   const option = getModelOption(modelId);
-  if (!option?.modelUrl || !option?.modelLibUrl) return null;
+  if (!option?.modelUrl || !option?.modelLibUrl) {
+    return { appConfig: null, source: { local: false } };
+  }
   const source = await resolveModelSource(option);
   if (source.local) {
     console.warn(`[AiChat] Using local model mirror for ${option.id}: ${source.modelUrl}`);
   }
+  const runtimeRecord =
+    runtimeAppConfig?.model_list?.find((record) => record.model_id === option.id) || {};
   return {
-    model_list: [
-      {
-        model: source.modelUrl,
-        model_id: option.id,
-        model_lib: source.modelLibUrl,
-        required_features: option.requires || [],
-        overrides: option.overrides || undefined,
-      },
-    ],
+    source,
+    appConfig: {
+      model_list: [
+        {
+          ...runtimeRecord,
+          model: source.modelUrl,
+          model_id: option.id,
+          model_lib: source.modelLibUrl,
+          required_features: option.requires || runtimeRecord.required_features || [],
+          overrides: { ...runtimeRecord.overrides, ...option.overrides },
+        },
+      ],
+    },
   };
 }
 
@@ -1168,6 +1068,7 @@ function extractCompletionResponseText(response) {
 }
 
 async function loadWebLLM(customLoader: any = null) {
+  if (customLoader) return customLoader();
   if (_webllmModule) return _webllmModule;
   if (typeof window !== 'undefined' && window.__vdlWebLLMModule) {
     _webllmModule = window.__vdlWebLLMModule;
@@ -1195,6 +1096,7 @@ async function loadWebLLM(customLoader: any = null) {
 }
 
 async function loadLiteRT(customLoader: any = null) {
+  if (customLoader) return customLoader();
   if (_litertModule) return _litertModule;
   if (typeof window !== 'undefined' && window.__vdlLiteRTModule) {
     _litertModule = window.__vdlLiteRTModule;
@@ -1239,6 +1141,16 @@ export const InputGuardrail = {
 // AiChat — Headless API
 // ═══════════════════════════════════════════════════════════════════════
 
+export type AiChatOptions = {
+  modelId?: string;
+  systemPromptOptions?: Record<string, unknown>;
+  toolProtocol?: 'auto' | 'native' | 'xml';
+  loadLiteRT?: () => Promise<unknown>;
+  loadWebLLM?: () => Promise<unknown>;
+  liteRtWasmPath?: string;
+  loadTransformers?: () => Promise<TransformersRuntime>;
+};
+
 export class AiChat {
   static VERSION = VDL_AI_CHAT_VERSION;
 
@@ -1258,7 +1170,20 @@ export class AiChat {
   _customLoadWebLLM: ((...args: any[]) => any) | null;
   _liteRtWasmPath: string | null;
 
-  constructor(options: Record<string, any> = {}) {
+  private _loadTransformers?: () => Promise<TransformersRuntime>;
+  private _loadAbort = new AbortController();
+  private _active: AbortController | null = null;
+  private _settled: Promise<void> = Promise.resolve();
+  private _loadSettled: Promise<void> = Promise.resolve();
+  private _loadEpoch = 0;
+  private _finishOperation: (() => void) | null = null;
+  private _replay: ChatMessage[] = [];
+  private _outputTokens = 1024;
+  private _lastContextStart = 0;
+  private _hadSources = false;
+
+  constructor(options: AiChatOptions = {}) {
+    this._loadTransformers = options.loadTransformers;
     this.modelId = options.modelId || MODEL_OPTIONS[0].id;
     this.engine = null;
     this._conversation = null;
@@ -1295,6 +1220,7 @@ export class AiChat {
    * @param {AiToolDefinition[]} defs
    */
   registerTools(defs) {
+    if (this._active) throw new Error('Stop generation before changing tools.');
     const list = Array.isArray(defs) ? defs : [];
     this._tools = list
       .map((d) => ({
@@ -1315,6 +1241,7 @@ export class AiChat {
    * @param {Record<string, unknown>} options
    */
   setSystemPromptOptions(options = {}) {
+    if (this._active) throw new Error('Stop generation before changing instructions.');
     this._systemPromptOptions = options && typeof options === 'object' ? { ...options } : {};
     this._needsEngineReload = true;
   }
@@ -1333,6 +1260,8 @@ export class AiChat {
 
   async setModelId(modelId: string, options: Record<string, any> = {}) {
     const { resetMessages = false, force = false } = options;
+    this.cancel();
+    await this._settled;
     if (this._isLoading) {
       throw new Error('Cannot change model ID while loading.');
     }
@@ -1368,25 +1297,93 @@ export class AiChat {
 
   async _disposeEngine() {
     try {
-      if (this._conversation && typeof this._conversation.delete === 'function') {
-        await this._conversation.delete();
-      }
+      await disposeRuntime(this._conversation, this.engine);
     } catch {
-      // ignore conversation teardown
+      /* lost device */
     }
     this._conversation = null;
-    try {
-      if (this.engine && typeof this.engine.delete === 'function') {
-        await this.engine.delete();
-        return;
-      }
-      const maybePromise = this.engine?.unload?.();
-      if (maybePromise && typeof maybePromise.catch === 'function') {
-        await maybePromise.catch(() => {});
-      }
-    } catch {
-      // Ignore teardown errors.
+    this.engine = null;
+  }
+
+  cancel() {
+    this._active?.abort();
+    if (this._isLoading) this._loadAbort.abort();
+    cancelRuntime(this._conversation, this.engine);
+    this._needsEngineReload = true;
+  }
+
+  getHistory(): ChatMessage[] {
+    return this.messages.map((m) => ({ role: m.role, content: m.content }));
+  }
+
+  async setHistory(history: ChatMessage[]) {
+    this.cancel();
+    await this._settled;
+    this.messages = history.map((m) => ({ role: m.role, content: String(m.content) }));
+    this._lastContextStart = 0;
+    this._needsEngineReload = true;
+  }
+
+  private _begin(options: GenerateOptions) {
+    if (this._active)
+      throw new Error('Generation is already running. Stop it before starting another turn.');
+    if (options.signal?.aborted) throw abortError();
+    const controller = new AbortController();
+    const stop = () => this.cancel();
+    options.signal?.addEventListener('abort', stop, { once: true });
+    this._active = controller;
+    this._settled = new Promise((resolve) => {
+      this._finishOperation = resolve;
+    });
+    return {
+      controller,
+      check: () => {
+        if (controller.signal.aborted) throw abortError();
+      },
+      finish: () => {
+        options.signal?.removeEventListener('abort', stop);
+        this._active = null;
+        this._finishOperation?.();
+        this._finishOperation = null;
+      },
+    };
+  }
+
+  private async _prepareContext(text: string, options: GenerateOptions) {
+    const windowTokens = boundedInteger(
+      options.contextTokenBudget,
+      getModelOption(this.modelId)?.maxNumTokens || 4096,
+      getModelOption(this.modelId)?.maxNumTokens || 4096,
+    );
+    const priorOutputTokens = this._outputTokens;
+    this._outputTokens = boundedInteger(
+      options.maxOutputTokens,
+      isLiteRTModel(this.modelId) ? 1024 : generationConfigForModel(this.modelId).max_tokens,
+      Math.min(2048, Math.floor(windowTokens / 2)),
+    );
+    if (isLiteRTModel(this.modelId) && priorOutputTokens !== this._outputTokens)
+      this._needsEngineReload = true;
+    const input = text + sourceContext(options.sources);
+    const context = selectContext(
+      this.messages,
+      this._composeSystemPrompt(),
+      input,
+      windowTokens,
+      this._outputTokens,
+    );
+    const start = context.status.omittedTurns;
+    // Rebuild after trimming, source changes, cancellation or a failed turn.
+    if (start !== this._lastContextStart || this._hadSources || options.sources?.length)
+      this._needsEngineReload = true;
+    if (this._conversation?.getTokenCount) {
+      const used = await this._conversation.getTokenCount();
+      if (used + estimateTokens(input) > context.status.inputBudget) this._needsEngineReload = true;
     }
+    this._lastContextStart = start;
+    this._hadSources = !!options.sources?.length;
+    this._replay = context.messages;
+    options.onContext?.(context.status);
+    return { input, history: context.messages };
   }
 
   async _ensureLiteRTConversation(forceNew = false) {
@@ -1401,7 +1398,7 @@ export class AiChat {
     }
     const systemContent = this._composeSystemPrompt();
     const preface: any = modelSupportsSystemRole(this.modelId)
-      ? { messages: [{ role: 'system', content: systemContent }] }
+      ? { messages: [{ role: 'system', content: systemContent }, ...this._replay] }
       : undefined;
 
     // Prefer native tools when protocol allows and tools are registered.
@@ -1420,17 +1417,26 @@ export class AiChat {
             parameters: t.parameters,
           },
         }));
-        this._conversation = await this.engine.createConversation({ preface });
+        this._conversation = await this.engine.createConversation({
+          preface,
+          sessionConfig: { maxOutputTokens: this._outputTokens },
+        });
         this._nativeToolsSupported = true;
         return this._conversation;
       } catch (err) {
-        console.warn('[AiChat] Native Preface.tools rejected; falling back to XML protocol.', err);
-        this._nativeToolsSupported = false;
-        delete preface.tools;
+        if (this._toolProtocol === 'native') throw err;
+        console.warn(
+          '[AiChat] Native Preface.tools rejected; choose XML explicitly for compatibility.',
+          err,
+        );
+        throw err;
       }
     }
 
-    this._conversation = await this.engine.createConversation(preface ? { preface } : undefined);
+    this._conversation = await this.engine.createConversation({
+      preface,
+      sessionConfig: { maxOutputTokens: this._outputTokens },
+    });
     if (this._tools.length > 0 && this._nativeToolsSupported !== true) {
       this._nativeToolsSupported = false;
     }
@@ -1453,10 +1459,10 @@ export class AiChat {
           try {
             args = JSON.parse(args);
           } catch {
-            args = { raw: args };
+            args = { _parseError: true, raw: args };
           }
         }
-        if (!args || typeof args !== 'object' || Array.isArray(args)) args = {};
+        if (!args || typeof args !== 'object' || Array.isArray(args)) args = { _parseError: true };
         return { name: String(name), args };
       })
       .filter((c) => c.name);
@@ -1472,111 +1478,116 @@ export class AiChat {
    *   onTool?: (info: { name: string, args: Record<string, unknown>, result: unknown }) => void,
    * }} options
    */
-  async generateWithTools(userText: string, options: Record<string, any> = {}) {
-    const execute = options.execute;
-    const maxRounds = Math.max(1, Number(options.maxRounds) || 4);
-    const onUpdate = options.onUpdate;
-    const onFinish = options.onFinish;
-    const onTool = options.onTool;
-
-    if (typeof execute !== 'function') {
+  async generateWithTools(
+    userText: string,
+    options: GenerateOptions & {
+      execute: (
+        name: string,
+        args: Record<string, unknown>,
+        context?: { signal: AbortSignal },
+      ) => unknown | Promise<unknown>;
+      maxRounds?: number;
+      maxCalls?: number;
+      toolTimeoutMs?: number;
+      maxResultBytes?: number;
+      onTool?: (info: { name: string; args: Record<string, unknown>; result: unknown }) => void;
+    },
+  ) {
+    if (typeof options.execute !== 'function')
       throw new Error('generateWithTools requires an execute(name, args) callback.');
-    }
-    if (!this._toolsSupportedForModel()) {
-      throw new Error(TOOLS_UNSUPPORTED_ERROR);
-    }
-    if (!this._tools.length) {
-      throw new Error('No tools registered. Call registerTools() first.');
-    }
-
-    const guardrailCheck = validateLlmInput({ text: userText });
-    if (!guardrailCheck.allowed) {
-      throw toGuardrailError(guardrailCheck);
-    }
-    if (!this._isLoaded || !this.engine) {
-      throw new Error('Model not loaded. Call load() first.');
-    }
-
-    const startingFreshConversation = this.messages.length === 0;
-    this.messages.push({ role: 'user', content: userText });
-
+    if (!this._toolsSupportedForModel()) throw new Error(TOOLS_UNSUPPORTED_ERROR);
+    if (!this._tools.length) throw new Error('No tools registered. Call registerTools() first.');
+    const guard = validateLlmInput({ text: userText });
+    if (!guard.allowed) throw toGuardrailError(guard);
+    if (!this.isLoaded()) throw new Error('Model not loaded. Call load() first.');
+    const operation = this._begin(options);
+    const rounds = boundedInteger(options.maxRounds, 4, 8);
+    const maxCalls = boundedInteger(options.maxCalls, 8, 16);
+    const resultLimit = boundedInteger(options.maxResultBytes, 8192, 32768);
+    let callCount = 0;
     try {
-      if (startingFreshConversation && this._needsEngineReload) {
-        await this._reloadEngine('reset');
-      }
-
-      let pendingUserPayload = userText;
-      let finalReply = '';
-
-      for (let round = 0; round < maxRounds; round += 1) {
-        const { reply, rawMessage } = await this._completeOnceLiteRTDetailed(
-          pendingUserPayload,
-          onUpdate,
-        );
-        const nativeCalls = this._extractNativeToolCalls(rawMessage);
-        const xmlParsed = parseXmlToolCalls(reply);
-        const calls = nativeCalls.length > 0 ? nativeCalls : xmlParsed.calls;
-
+      const { input } = await this._prepareContext(userText, options);
+      operation.check();
+      let pending: any = input;
+      for (let round = 0; round < rounds; round++) {
+        const { reply, rawMessage } = await this._completeOnceLiteRTDetailed(pending, null);
+        operation.check();
+        const calls =
+          this._toolProtocol === 'xml'
+            ? parseXmlToolCalls(reply).calls
+            : this._extractNativeToolCalls(rawMessage);
+        if (
+          this._toolProtocol === 'xml' &&
+          /<\/?tool_call\b/i.test(parseXmlToolCalls(reply).remainder)
+        )
+          throw new Error('Malformed tool protocol.');
         if (!calls.length) {
-          finalReply = applyOutputGuardrails(reply.trim());
-          if (!finalReply) {
-            this.messages.pop();
+          if (/<tool_call\b/i.test(reply))
+            throw new Error('Malformed or unsupported tool protocol.');
+          const final = applyOutputGuardrails(reply);
+          if (!final)
             throw new Error(`Model ${this.modelId} returned an empty response during tool loop.`);
-          }
-          this.messages.push({ role: 'assistant', content: finalReply });
-          if (onFinish) onFinish(null);
-          if (onUpdate) onUpdate(finalReply);
-          return finalReply;
+          this.messages.push(
+            { role: 'user', content: userText },
+            { role: 'assistant', content: final },
+          );
+          options.onUpdate?.(final);
+          options.onFinish?.(null);
+          this._needsEngineReload = true;
+          return final;
         }
-
-        this.messages.push({ role: 'assistant', content: reply });
         const results: Array<{ name: string; result: unknown }> = [];
         for (const call of calls) {
+          operation.check();
+          if (++callCount > maxCalls) throw new Error('Tool call limit exceeded.');
           const validation = validateToolCall({
             name: call.name,
             args: call.args,
             allowlist: this._tools,
           });
-          if (!validation.allowed) {
-            const errPayload = {
-              error: validation.code,
-              message: validation.message,
-            };
-            results.push({ name: call.name, result: errPayload });
-            if (onTool) onTool({ name: call.name, args: call.args, result: errPayload });
-            continue;
-          }
           let result: unknown;
-          try {
-            result = await execute(call.name, call.args || {});
-          } catch (err: any) {
-            result = {
-              error: 'tool.execute_failed',
-              message: err?.message || String(err),
-            };
+          if (!validation.allowed) result = { error: validation.code, message: validation.message };
+          else {
+            try {
+              result = await runBoundedTool(
+                (signal) => options.execute(call.name, call.args, { signal }),
+                operation.controller.signal,
+                boundedInteger(options.toolTimeoutMs, 15000, 60000),
+              );
+              const encoded = JSON.stringify(result ?? null);
+              if (new TextEncoder().encode(encoded).length > resultLimit)
+                result = { error: 'tool.result.too_large' };
+              else result = JSON.parse(encoded);
+            } catch (err: any) {
+              operation.check();
+              result = {
+                error: 'tool.execute_failed',
+                message: String(err?.message || err).slice(0, 240),
+              };
+            }
           }
+          operation.check();
           results.push({ name: call.name, result });
-          if (onTool) onTool({ name: call.name, args: call.args, result });
+          options.onTool?.({ name: call.name, args: call.args, result });
         }
-
-        // Feed tool results back as the next user turn (XML protocol is portable).
-        pendingUserPayload = results.map((r) => formatXmlToolResult(r.name, r.result)).join('\n');
-        this.messages.push({ role: 'user', content: pendingUserPayload });
+        pending =
+          this._toolProtocol === 'xml'
+            ? results.map((r) => formatXmlToolResult(r.name, r.result)).join('\n')
+            : {
+                role: 'tool',
+                content: results.map((r) => ({
+                  type: 'tool_response',
+                  name: r.name,
+                  response: r.result,
+                })),
+              };
       }
-
-      throw new Error(
-        `Tool loop exceeded maxRounds (${maxRounds}) without a final assistant reply.`,
-      );
+      throw new Error(`Tool loop exceeded maxRounds (${rounds}) without a final assistant reply.`);
     } catch (err) {
-      if (
-        this.messages.length &&
-        this.messages[this.messages.length - 1]?.role === 'user' &&
-        this.messages[this.messages.length - 1]?.content === userText
-      ) {
-        this.messages.pop();
-      }
-      console.error('[AiChat] generateWithTools error:', err);
+      this._needsEngineReload = true;
       throw err;
+    } finally {
+      operation.finish();
     }
   }
 
@@ -1584,75 +1595,29 @@ export class AiChat {
    * Like _completeOnceLiteRT but also returns the last raw message for tool_calls.
    */
   async _completeOnceLiteRTDetailed(userText, onUpdate) {
-    let conversation = await this._ensureLiteRTConversation(false);
+    const conversation = await this._ensureLiteRTConversation(false);
     let reply = '';
-    let rawMessage = null;
-
-    try {
-      if (typeof conversation.sendMessageStreaming === 'function') {
-        for await (const chunk of iterateMessageStream(
-          conversation.sendMessageStreaming(userText),
-        )) {
-          rawMessage = chunk;
-          const delta = extractLiteRTText(chunk);
-          if (!delta) continue;
-          if (Array.isArray(chunk?.content)) {
-            reply += delta;
-          } else if (delta.startsWith(reply)) {
-            reply = delta;
-          } else {
-            reply += delta;
-          }
-          const cleanedPartial = sanitizeModelReply(reply) || reply;
-          if (onUpdate) onUpdate(cleanedPartial);
-        }
-      } else {
-        const response = await conversation.sendMessage(userText);
-        rawMessage = response;
-        reply = extractLiteRTText(response);
-        if (reply && onUpdate) onUpdate(sanitizeModelReply(reply) || reply);
-      }
-    } catch (err: any) {
-      if (
-        /too many tokens|context.*exceeded|out of memory|buffer overflow/i.test(err?.message || '')
-      ) {
-        console.warn(
-          '[AiChat] Token limit reached in LiteRT conversation; resetting conversation context.',
-          err,
-        );
-        conversation = await this._ensureLiteRTConversation(true);
-        reply = '';
-        rawMessage = null;
-        if (typeof conversation.sendMessageStreaming === 'function') {
-          for await (const chunk of iterateMessageStream(
-            conversation.sendMessageStreaming(userText),
-          )) {
-            rawMessage = chunk;
-            const delta = extractLiteRTText(chunk);
-            if (!delta) continue;
-            if (Array.isArray(chunk?.content)) {
-              reply += delta;
-            } else if (delta.startsWith(reply)) {
-              reply = delta;
-            } else {
-              reply += delta;
-            }
-            const cleanedPartial = sanitizeModelReply(reply) || reply;
-            if (onUpdate) onUpdate(cleanedPartial);
-          }
-        } else {
-          const response = await conversation.sendMessage(userText);
-          rawMessage = response;
-          reply = extractLiteRTText(response);
-          if (reply && onUpdate) onUpdate(sanitizeModelReply(reply) || reply);
-        }
-      } else {
-        throw err;
-      }
-    }
-
-    reply = sanitizeModelReply(reply) || reply.trim();
-    return { reply, usage: null, rawMessage };
+    let rawMessage: any = null;
+    const calls: any[] = [];
+    const accept = (chunk) => {
+      rawMessage = chunk;
+      if (chunk?.tool_calls) calls.push(...chunk.tool_calls);
+      const delta = extractLiteRTText(chunk);
+      if (delta)
+        reply = Array.isArray(chunk?.content)
+          ? reply + delta
+          : delta.startsWith(reply)
+            ? delta
+            : reply + delta;
+      const visible = visibleGenerationText(reply);
+      if (onUpdate && visible) onUpdate(visible);
+    };
+    if (typeof conversation.sendMessageStreaming === 'function') {
+      for await (const chunk of iterateMessageStream(conversation.sendMessageStreaming(userText)))
+        accept(chunk);
+    } else accept(await conversation.sendMessage(userText));
+    if (calls.length) rawMessage = { ...rawMessage, tool_calls: calls };
+    return { reply: visibleGenerationText(reply), usage: null, rawMessage };
   }
 
   async load() {
@@ -1671,7 +1636,13 @@ export class AiChat {
       throw err;
     }
 
+    this._loadAbort = new AbortController();
     this._isLoading = true;
+    const epoch = ++this._loadEpoch;
+    let finishLoad!: () => void;
+    this._loadSettled = new Promise((resolve) => {
+      finishLoad = resolve;
+    });
     try {
       // Clear any partial engine left by a previous failed load attempt.
       if (this.engine || this._conversation) {
@@ -1681,12 +1652,25 @@ export class AiChat {
       }
       if (isLiteRTModel(this.modelId)) {
         await this._loadLiteRT();
+      } else if (modelBackend(this.modelId) === 'transformers') {
+        if (!this._loadTransformers)
+          throw new Error('This model requires a host-provided loadTransformers worker adapter.');
+        const runtime = await this._loadTransformers();
+        const signal = this._loadAbort.signal;
+        const pending = runtime.createEngine(getModelOption(this.modelId)!, {
+          signal,
+          onProgress: (p) => this._emitProgress(p),
+        });
+        this.engine = await awaitAbortableLoad(pending, signal, (engine) => {
+          void disposeRuntime(null, engine).catch(() => {});
+        });
       } else {
         await this._loadWebLLM();
       }
       if (!this.engine) {
         throw new Error('Model engine failed to initialize.');
       }
+      if (this._loadAbort.signal.aborted || epoch !== this._loadEpoch) throw abortError();
       this._isLoaded = true;
       this._needsEngineReload = false;
       markModelCached(this.modelId);
@@ -1708,6 +1692,7 @@ export class AiChat {
       throw normalized;
     } finally {
       this._isLoading = false;
+      finishLoad();
     }
   }
 
@@ -1824,12 +1809,19 @@ export class AiChat {
   }
 
   async _loadWebLLM() {
-    const { CreateMLCEngine } = await loadWebLLM(this._customLoadWebLLM);
+    const webllm = await loadWebLLM(this._customLoadWebLLM);
+    const { CreateMLCEngine } = webllm;
     this._emitProgress({ stage: 'init', message: 'Initializing WebGPU engine...' });
     await yieldToMain();
 
-    const appConfig = await buildModelAppConfig(this.modelId);
+    const { appConfig, source } = await buildModelAppConfig(this.modelId, webllm.prebuiltAppConfig);
+    this._emitProgress({
+      stage: 'init',
+      source: source.local ? 'local' : 'network',
+    });
     const engineConfig: Record<string, any> = {
+      // Host adapters can use this signal to terminate an initializing worker.
+      signal: this._loadAbort.signal,
       initProgressCallback: (progress: any) => {
         const loaded = typeof progress.progress === 'number' ? progress.progress : 0;
         const text = String(progress.text || '');
@@ -1847,7 +1839,11 @@ export class AiChat {
       engineConfig.appConfig = appConfig;
     }
 
-    this.engine = await CreateMLCEngine(this.modelId, engineConfig);
+    const signal = this._loadAbort.signal;
+    const pending = Promise.resolve(CreateMLCEngine(this.modelId, engineConfig));
+    this.engine = await awaitAbortableLoad(pending, signal, (engine) => {
+      void disposeRuntime(null, engine).catch(() => {});
+    });
   }
 
   isLoaded() {
@@ -1864,8 +1860,20 @@ export class AiChat {
   }
 
   async _reloadEngine(reason = 'reset') {
+    if (modelBackend(this.modelId) === 'transformers') {
+      await this.engine.reset();
+      this._needsEngineReload = false;
+      return;
+    }
     if (isLiteRTModel(this.modelId)) {
       await this._ensureLiteRTConversation(true);
+      this._needsEngineReload = false;
+      return;
+    }
+    // resetChat clears a normal WebLLM conversation without evicting or re-uploading
+    // model weights. Retain full reload for the Gemma MLC empty-stream workaround.
+    if (!isWebLLMGemmaMlC(this.modelId) && typeof this.engine?.resetChat === 'function') {
+      await this.engine.resetChat();
       this._needsEngineReload = false;
       return;
     }
@@ -1891,72 +1899,7 @@ export class AiChat {
   }
 
   async _completeOnceLiteRT(userText, onUpdate) {
-    let conversation = await this._ensureLiteRTConversation(false);
-    let reply = '';
-
-    try {
-      if (typeof conversation.sendMessageStreaming === 'function') {
-        // Do not `for await` the raw return value — it is a ReadableStream, and
-        // Safari cannot async-iterate ReadableStream (see iterateMessageStream).
-        for await (const chunk of iterateMessageStream(
-          conversation.sendMessageStreaming(userText),
-        )) {
-          const delta = extractLiteRTText(chunk);
-          if (!delta) continue;
-          // Streaming chunks may be cumulative or incremental — prefer append of delta text pieces.
-          if (Array.isArray(chunk?.content)) {
-            reply += delta;
-          } else if (delta.startsWith(reply)) {
-            reply = delta;
-          } else {
-            reply += delta;
-          }
-          const cleanedPartial = sanitizeModelReply(reply) || reply;
-          if (onUpdate) onUpdate(cleanedPartial);
-        }
-      } else {
-        const response = await conversation.sendMessage(userText);
-        reply = extractLiteRTText(response);
-        if (reply && onUpdate) onUpdate(sanitizeModelReply(reply) || reply);
-      }
-    } catch (err: any) {
-      if (
-        /too many tokens|context.*exceeded|out of memory|buffer overflow/i.test(err?.message || '')
-      ) {
-        console.warn(
-          '[AiChat] Token limit reached in LiteRT conversation; resetting conversation context.',
-          err,
-        );
-        conversation = await this._ensureLiteRTConversation(true);
-        reply = '';
-        if (typeof conversation.sendMessageStreaming === 'function') {
-          for await (const chunk of iterateMessageStream(
-            conversation.sendMessageStreaming(userText),
-          )) {
-            const delta = extractLiteRTText(chunk);
-            if (!delta) continue;
-            if (Array.isArray(chunk?.content)) {
-              reply += delta;
-            } else if (delta.startsWith(reply)) {
-              reply = delta;
-            } else {
-              reply += delta;
-            }
-            const cleanedPartial = sanitizeModelReply(reply) || reply;
-            if (onUpdate) onUpdate(cleanedPartial);
-          }
-        } else {
-          const response = await conversation.sendMessage(userText);
-          reply = extractLiteRTText(response);
-          if (reply && onUpdate) onUpdate(sanitizeModelReply(reply) || reply);
-        }
-      } else {
-        throw err;
-      }
-    }
-
-    reply = sanitizeModelReply(reply) || reply.trim();
-    return { reply, usage: null };
+    return this._completeOnceLiteRTDetailed(userText, onUpdate);
   }
 
   async _completeOnce(payload, genConfig, onUpdate) {
@@ -1975,12 +1918,13 @@ export class AiChat {
       const delta = extractCompletionResponseText(chunk);
       if (!delta) continue;
       reply += delta;
-      const cleanedPartial = sanitizeModelReply(reply) || reply;
-      if (onUpdate) onUpdate(cleanedPartial);
+      const cleanedPartial = visibleGenerationText(reply);
+      if (onUpdate && cleanedPartial) onUpdate(cleanedPartial);
     }
 
-    reply = sanitizeModelReply(reply) || reply.trim();
+    reply = visibleGenerationText(reply);
 
+    if (this._active?.signal.aborted) throw abortError();
     if (!reply.trim()) {
       await this._reloadEngine('empty');
       const completion = await this.engine.chat.completions.create({
@@ -1988,7 +1932,7 @@ export class AiChat {
         ...genConfig,
         stream: false,
       });
-      reply = sanitizeModelReply(extractCompletionResponseText(completion));
+      reply = visibleGenerationText(extractCompletionResponseText(completion));
       usage = completion?.usage || usage;
       if (reply && onUpdate) onUpdate(reply);
     }
@@ -1998,85 +1942,105 @@ export class AiChat {
 
   async generate(
     userText: string,
-    onUpdate?: ((partial: string) => void) | null,
+    optionsOrUpdate?: GenerateOptions | ((partial: string) => void) | null,
     onFinish?: ((usage: unknown) => void) | null,
   ) {
-    const guardrailCheck = validateLlmInput({ text: userText });
-    if (!guardrailCheck.allowed) {
-      throw toGuardrailError(guardrailCheck);
-    }
-
-    if (!this._isLoaded || !this.engine) {
-      throw new Error('Model not loaded. Call load() first.');
-    }
-
-    const startingFreshConversation = this.messages.length === 0;
-    this.messages.push({ role: 'user', content: userText });
-    const useLiteRT = isLiteRTModel(this.modelId);
-    const useBrokenMlCWorkaround = isWebLLMGemmaMlC(this.modelId);
-    const genConfig = generationConfigForModel(this.modelId);
-
+    const options: GenerateOptions =
+      typeof optionsOrUpdate === 'function' || optionsOrUpdate == null
+        ? { onUpdate: optionsOrUpdate || undefined, onFinish: onFinish || undefined }
+        : optionsOrUpdate;
+    const guard = validateLlmInput({ text: userText });
+    if (!guard.allowed) throw toGuardrailError(guard);
+    if (!this.isLoaded()) throw new Error('Model not loaded. Call load() first.');
+    const operation = this._begin(options);
+    let blocked = false;
+    let displayed = '';
+    const update = (partial: string) => {
+      operation.check();
+      const safe = applyOutputGuardrails(partial);
+      if (safe === LLM_OUTPUT_BLOCK_MESSAGE) blocked = true;
+      // Keep tool protocol and thought channels out of the visible stream.
+      if (!/<(?:tool_call|tool_result)\b/i.test(partial)) {
+        displayed = blocked ? LLM_OUTPUT_BLOCK_MESSAGE : safe;
+        options.onUpdate?.(displayed);
+      }
+    };
     try {
-      if (useLiteRT) {
-        if (startingFreshConversation && this._needsEngineReload) {
-          await this._reloadEngine('reset');
-        }
-        const { reply, usage } = await this._completeOnceLiteRT(userText, onUpdate);
-        if (!reply.trim()) {
-          this.messages.pop();
+      const { input, history } = await this._prepareContext(userText, options);
+      operation.check();
+      let result;
+      if (isLiteRTModel(this.modelId)) {
+        result = await this._completeOnceLiteRT(input, update);
+      } else if (modelBackend(this.modelId) === 'transformers') {
+        const engine = this.engine as TransformersEngine;
+        const payload = [
+          { role: 'system', content: this._composeSystemPrompt() },
+          ...history,
+          { role: 'user', content: input },
+        ];
+        const inputTokens = await engine.countTokens(payload);
+        operation.check();
+        const budget = Math.min(
+          options.contextTokenBudget || 4096,
+          getModelOption(this.modelId)?.maxNumTokens || 4096,
+        );
+        if (inputTokens + this._outputTokens > budget)
+          throw new Error('This message exceeds the model context budget. Shorten the message.');
+        await engine.reset();
+        result = await engine.generate(payload, {
+          maxOutputTokens: this._outputTokens,
+          signal: operation.controller.signal,
+          onUpdate: (text) => {
+            const visible = visibleGenerationText(text);
+            if (visible) update(visible);
+          },
+        });
+        result.reply = visibleGenerationText(result.reply);
+        if (!result.reply.trim())
           throw new Error(
-            `Model ${this.modelId} returned an empty response. Hard-refresh and reload the model.`,
+            'The model reached its output limit before producing a visible answer. Try a shorter question.',
           );
-        }
-        const safeReply = applyOutputGuardrails(reply);
-        this.messages.push({ role: 'assistant', content: safeReply });
-        if (onUpdate && safeReply !== reply) onUpdate(safeReply);
-        if (onFinish && usage) onFinish(usage);
-        return safeReply;
-      }
-
-      // Community Gemma 4 MLC: native multi-turn history is unreliable — latest turn only.
-      const payload = useBrokenMlCWorkaround
-        ? buildChatPayload(this.modelId, [{ role: 'user', content: userText }])
-        : buildChatPayload(this.modelId, this.messages);
-
-      if (useBrokenMlCWorkaround) {
-        if (startingFreshConversation) {
-          if (this._needsEngineReload) await this._reloadEngine('reset');
-        } else {
-          await this._reloadEngine('gemma-turn');
-        }
-      } else if (startingFreshConversation && this._needsEngineReload) {
-        await this._reloadEngine('reset');
-      }
-
-      const { reply, usage } = await this._completeOnce(payload, genConfig, onUpdate);
-
-      if (!reply.trim()) {
-        this.messages.pop();
-        throw new Error(
-          `Model ${this.modelId} returned an empty response. Hard-refresh and reload the model (Gemma 4 MLC builds are experimental).`,
+        this._needsEngineReload = false;
+      } else {
+        const broken = isWebLLMGemmaMlC(this.modelId);
+        if (this._needsEngineReload || (broken && this.messages.length))
+          await this._reloadEngine('reset');
+        operation.check();
+        const payload = buildChatPayload(
+          this.modelId,
+          [...(broken ? [] : history), { role: 'user', content: input }],
+          this._composeSystemPrompt(),
+        );
+        const config = generationConfigForModel(this.modelId);
+        result = await this._completeOnce(
+          payload,
+          { ...config, max_tokens: this._outputTokens },
+          update,
         );
       }
-      const safeReply = applyOutputGuardrails(reply);
-      this.messages.push({ role: 'assistant', content: safeReply });
-      if (onUpdate && safeReply !== reply) onUpdate(safeReply);
-      if (onFinish && usage) onFinish(usage);
-      return safeReply;
+      operation.check();
+      if (!result.reply.trim())
+        throw new Error(
+          `Model ${this.modelId} returned an empty response. Reload the model and try again.`,
+        );
+      const safe = blocked ? LLM_OUTPUT_BLOCK_MESSAGE : applyOutputGuardrails(result.reply);
+      this.messages.push({ role: 'user', content: userText }, { role: 'assistant', content: safe });
+      if (safe !== result.reply) this._needsEngineReload = true;
+      if (displayed !== safe) options.onUpdate?.(safe);
+      options.onFinish?.(result.usage);
+      return safe;
     } catch (err) {
-      if (
-        this.messages.length &&
-        this.messages[this.messages.length - 1]?.role === 'user' &&
-        this.messages[this.messages.length - 1]?.content === userText
-      ) {
-        this.messages.pop();
-      }
-      console.error('[AiChat] Generation error:', err);
+      this._needsEngineReload = true;
       throw err;
+    } finally {
+      operation.finish();
     }
   }
 
   reset() {
+    this.cancel();
+    this._replay = [];
+    this._lastContextStart = 0;
     this.messages = [];
     // LiteRT + WebLLM Gemma MLC: next generate() opens a fresh conversation / reloads.
     this._needsEngineReload = true;
@@ -2084,6 +2048,10 @@ export class AiChat {
 
   /** Release WebGPU/WASM engine resources (eval harness / model switch). */
   async dispose() {
+    this._loadEpoch++;
+    this.cancel();
+    await this._loadSettled;
+    await this._settled;
     await this._disposeEngine();
     this._isLoaded = false;
     this._isLoading = false;

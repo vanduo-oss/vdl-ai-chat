@@ -61,7 +61,30 @@ Constructor options of note:
 - `loadLiteRT` / `loadWebLLM` — inject bundled runtimes (required under strict CSP; avoids CDN)
 - `liteRtWasmPath` — same-origin directory or `.js` URL for LiteRT WASM glue
 - `systemPromptOptions` — `{ product, extra }` folded into the FOSS role-lock sandwich
-- `toolProtocol` — `'auto' | 'native' | 'xml'`
+- `toolProtocol` — `'auto' | 'native' | 'xml'`; auto uses native LiteRT calls. XML is an explicit compatibility choice, never a silent fallback.
+
+## Conversation lifecycle
+
+```ts
+const abort = new AbortController();
+await chat.generate('How does the dock work?', {
+  signal: abort.signal,
+  maxOutputTokens: 768,
+  contextTokenBudget: 8192,
+  sources: [{ id: 'dock:props', title: 'Dock props', text: 'A trusted host-selected excerpt' }],
+  onUpdate: safeText => render(safeText),
+  onContext: ({ omittedTurns }) => showOmissionNotice(omittedTurns),
+});
+// Stop from the host: abort.abort() or chat.cancel().
+```
+
+The original `generate(text, onUpdate, onFinish)` callbacks remain supported. Only one generation runs at a time. Cancellation rejects with `AbortError` and never commits a partial turn. `reset()`, `setHistory()`, `setModelId()` and `dispose()` invalidate active output. Disposal also releases an engine that finishes loading after navigation. Await asynchronous teardown before reusing a model.
+
+`getHistory()` returns a copy. Context budgeting reserves output space and retains recent complete turns while keeping visible history intact. The estimate is conservative; LiteRT's token count also triggers a native-state rebuild when needed. Supplied references are bounded untrusted data, never extra system instructions. Hosts must validate citation IDs before rendering source links.
+
+Tools validate plain JSON, types, required/properties/additionalProperties, arrays, enums and numeric/string/array bounds. Unsupported schema keywords fail closed. Native results use `tool_response` messages; XML values are escaped. Defaults: 4 rounds, 8 calls, 15 seconds per tool, 8 KB result; host options are capped. Executors receive an optional third `{ signal }` argument and should honor it. A timeout stops awaiting a tool; it cannot undo external side effects.
+
+Streamed and final text pass the output guard before callbacks. These deterministic checks reduce protocol misuse; they do not establish factual accuracy. Render text through the safe markdown helper.
 
 ## CSP / WASM
 
@@ -74,7 +97,7 @@ new AiChat({
 });
 ```
 
-Serve the LiteRT WASM assets from that same-origin path.
+Pin `@litert-lm/core` to **0.17.1** and `@mlc-ai/web-llm` to **0.2.85** in the host. Serve matching LiteRT WASM assets from that same-origin path. Labs bundles WebLLM in a module worker and serves Tiny compiled model WASM locally. Its production CSP allows WASM compilation without general JavaScript eval.
 
 ## WebGPU
 
@@ -90,7 +113,7 @@ See `tests/e2e/playwright.config.ts` for `args` that enable WebGPU on Apple Sili
 ## LiteRT model sizes (E2B vs E4B)
 
 - **E2B** (`gemma-4-E2B-it-web`, ~2 GB) — recommended default; reliable for CI/automation and headless Chrome.
-- **E4B** (`gemma-4-E4B-it-web`, ~2.5 GB) — higher quality; **cold load in headless Chrome** may fail mid-download/stream. Prefer headed browser or a warm Cache Storage entry. Not required for package e2e (E2B only).
+- **E4B** (`gemma-4-E4B-it-web`, ~3.0 GB) — quality option; the current artifact is 2,969,059,328 bytes. Cold and warm loads passed the local Chrome evaluation. Available browser memory and storage still matter. Package e2e uses E2B; the Labs evaluation covers all three curated models.
 
 App-fetched weights are buffered to a `Blob` and passed to `Engine.create` (not re-streamed). Transient network failures retry a few times. Use `describeLoadProgress()` on `onProgress` events — `stage: 'error'` includes a human-readable `progressText` / `statusText`.
 

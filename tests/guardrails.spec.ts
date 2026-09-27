@@ -89,9 +89,18 @@ describe('llm guardrails', () => {
     });
     expect(prompt).toContain('TypeScript School');
     expect(prompt).toContain('ROLE LOCK');
+    expect(prompt).toContain('general-purpose assistant');
+    expect(prompt).toContain('writing, math, analysis, coding');
+    expect(prompt).not.toContain('help only within product scope');
     expect(prompt).toContain('CRITICAL REMINDER');
     expect(prompt).toContain('search_curriculum');
     expect(prompt).toContain('Be brief.');
+  });
+
+  it('allows benign creative requests past the input guardrails', () => {
+    expect(validateLlmInput({ text: 'Write a short story about twenty islands.' }).allowed).toBe(
+      true,
+    );
   });
 
   it('chatGuardrails facade', () => {
