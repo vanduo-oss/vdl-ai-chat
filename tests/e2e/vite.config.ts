@@ -17,7 +17,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@vanduo-oss/vdl-ai-chat': path.resolve(root, '../../src/index.ts'),
+      '@vanduo-oss/vwl-ai-chat': path.resolve(root, '../../src/index.ts'),
     },
   },
   optimizeDeps: {

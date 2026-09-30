@@ -1,6 +1,6 @@
 ## Context
 
-Labs shipped AiChat as plain ESM inside `@vanduo-oss/vdl-engines`. This change extracts it into `@vanduo-oss/vdl-ai-chat` with strict TypeScript packaging (vd3-style) while preserving the headless API ts-school already uses.
+Labs shipped AiChat as plain ESM inside `@vanduo-oss/vwl-engines`. This change extracts it into `@vanduo-oss/vwl-ai-chat` with strict TypeScript packaging (vd3-style) while preserving the headless API ts-school already uses.
 
 ## Goals / Non-Goals
 

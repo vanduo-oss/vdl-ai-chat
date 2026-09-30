@@ -22,7 +22,7 @@ and documented E4B/headless limits — without breaking existing E2B defaults.
 
 ### Modified Capabilities
 
-- `vdl-ai-chat`: LiteRT load resilience + error progress surfacing
+- `vwl-ai-chat`: LiteRT load resilience + error progress surfacing
 - `qa-gates`: clarify E2B-only e2e remains sufficient; E4B headless not required
 - `repo-scaffold`: version `0.1.1`
 

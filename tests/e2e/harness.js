@@ -25,7 +25,7 @@ async function main() {
       modelId: 'gemma-4-E2B-it-web',
       loadLiteRT: () => import('@litert-lm/core'),
       liteRtWasmPath: '/litert-wasm/',
-      systemPromptOptions: { product: 'vdl-ai-chat e2e' },
+      systemPromptOptions: { product: 'vwl-ai-chat e2e' },
     });
 
     // Prefer cached local model file when present (downloaded by ensure script).

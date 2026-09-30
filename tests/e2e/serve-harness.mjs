@@ -34,7 +34,7 @@ console.log('[e2e-harness] wasmRoot=', wasmRoot);
 console.log('[e2e-harness] modelCacheRoot=', modelCacheRoot);
 
 const staticPlugin = {
-  name: 'vdl-e2e-static',
+  name: 'vwl-e2e-static',
   configureServer(server) {
     server.middlewares.use((req, res, next) => {
       const url = req.url?.split('?')[0] || '';

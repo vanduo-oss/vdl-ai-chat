@@ -1,7 +1,7 @@
 schema: spec-driven
 
 context: |
-  Package: @vanduo-oss/vdl-ai-chat (MIT, vanduo-oss org). Labs sibling repo —
+  Package: @vanduo-oss/vwl-ai-chat (MIT, vanduo-oss org). Labs sibling repo —
   private / not published on npm; consume via link: beside Labs.
   Headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails and
   CSP-safe markdown. Zero runtime npm deps; heavy runtimes load via CDN or

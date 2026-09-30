@@ -1,5 +1,5 @@
 /**
- * @vanduo-oss/vdl-ai-chat — headless on-device AiChat engine.
+ * @vanduo-oss/vwl-ai-chat — headless on-device AiChat engine.
  * Source promoted from labs/ai-chat.js (UI omitted; hosts supply their own shell).
  */
 
@@ -31,7 +31,7 @@ import type { TransformersRuntime, TransformersEngine } from './transformers-run
  * Headless AiChat — Gemma via LiteRT-LM / WebLLM in the browser (WebGPU).
  *
  * @example
- * import { AiChat } from '@vanduo-oss/vdl-ai-chat';
+ * import { AiChat } from '@vanduo-oss/vwl-ai-chat';
  * const chat = new AiChat({ modelId: 'gemma-4-E2B-it-web' });
  * await chat.load();
  */
@@ -45,7 +45,7 @@ const CDN = {
   litert: 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.17.1/+esm',
 };
 
-export const VDL_AI_CHAT_VERSION = '0.1.1';
+export const VWL_AI_CHAT_VERSION = '0.1.1';
 
 export const TOOLS_UNSUPPORTED_ERROR =
   'Tool calling is only supported on LiteRT Gemma (E2B/E4B) models.';
@@ -89,7 +89,7 @@ export function inferLoadSource(progressText: unknown): 'cache' | 'local' | 'net
 
 /**
  * Map an AiChat `onProgress` payload into UI-ready load status fields.
- * Shared by Labs VdlAiChatUI / AiChatUI and host apps (e.g. ts-school).
+ * Shared by Labs VwlAiChatUI / AiChatUI and host apps (e.g. ts-school).
  *
  * @param {Record<string, unknown> | null | undefined} data
  * @param {{ likelyCached?: boolean, freezeHint?: string }} [options]
@@ -346,10 +346,10 @@ export function shouldFocusChatComposer(opts: Record<string, any> = {}) {
 }
 
 /** localStorage flag prefix — set after a successful model load (weights may be in Cache Storage). */
-export const MODEL_CACHE_FLAG_PREFIX = 'vdl-ai-chat-model-cached:';
+export const MODEL_CACHE_FLAG_PREFIX = 'vwl-ai-chat-model-cached:';
 
 /** Cache Storage bucket for LiteRT `.litertlm` weights (app-owned; not the opaque HTTP disk cache). */
-export const LITERT_MODEL_CACHE_NAME = 'vdl-litert-models';
+export const LITERT_MODEL_CACHE_NAME = 'vwl-litert-models';
 
 const DEFAULT_GENERATION_CONFIG = {
   max_tokens: 512,
@@ -1152,7 +1152,7 @@ export type AiChatOptions = {
 };
 
 export class AiChat {
-  static VERSION = VDL_AI_CHAT_VERSION;
+  static VERSION = VWL_AI_CHAT_VERSION;
 
   modelId: string;
   engine: any;
@@ -2062,5 +2062,5 @@ export class AiChat {
 
 // ═══════════════════════════════════════════════════════════════════════
 // AiChatUI — legacy imperative DOM component (compat / tests)
-// Labs site uses Vue `VdlAiChatUI` instead.
+// Labs site uses Vue `VwlAiChatUI` instead.
 // ═══════════════════════════════════════════════════════════════════════

@@ -1,10 +1,10 @@
 ## Why
 
-The package is structurally extracted but still `"private": true`, with no CI, failing lint/format, thin docs, and no dual local-vs-CI test story. We need a first public npm release so ts-school and other hosts can depend on `@vanduo-oss/vdl-ai-chat` from the registry.
+The package is structurally extracted but still `"private": true`, with no CI, failing lint/format, thin docs, and no dual local-vs-CI test story. We need a first public npm release so ts-school and other hosts can depend on `@vanduo-oss/vwl-ai-chat` from the registry.
 
 ## What Changes
 
-- Remove `"private": true` and prepare publish metadata for `@vanduo-oss/vdl-ai-chat@0.1.0`
+- Remove `"private": true` and prepare publish metadata for `@vanduo-oss/vwl-ai-chat@0.1.0`
 - Add GitHub Actions CI (format, lint, typecheck, coverage unit suite, build, pack dry-run, audit) — **no** WebGPU/model inference on CI
 - Add local Mac M4 QA gate: Playwright WebGPU loads Gemma 4 E2B LiteRT and runs real `generate()`
 - Enforce Prettier/ESLint clean; Vitest coverage thresholds ≥90% on `src/` for CI suites
@@ -21,7 +21,7 @@ The package is structurally extracted but still `"private": true`, with no CI, f
 ### Modified Capabilities
 
 - `repo-scaffold`: Allow CI; publishable package metadata; remove no-ci-while-private
-- `vdl-ai-chat`: Normative recommended default model (Gemma 4 E2B LiteRT)
+- `vwl-ai-chat`: Normative recommended default model (Gemma 4 E2B LiteRT)
 
 ## Impact
 

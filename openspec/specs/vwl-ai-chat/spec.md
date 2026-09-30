@@ -1,4 +1,4 @@
-# vdl-ai-chat Specification
+# vwl-ai-chat Specification
 
 ## Purpose
 Headless on-device AiChat engine with LiteRT Gemma / WebLLM backends, streaming generate, and tool loop.

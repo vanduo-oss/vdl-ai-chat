@@ -1,7 +1,7 @@
 # qa-gates Specification
 
 ## Purpose
-Defines dual QA gates and release documentation for publishing `@vanduo-oss/vdl-ai-chat` while keeping remote CI free of WebGPU model inference.
+Defines dual QA gates and release documentation for publishing `@vanduo-oss/vwl-ai-chat` while keeping remote CI free of WebGPU model inference.
 ## Requirements
 ### Requirement: dual-test-tiers
 

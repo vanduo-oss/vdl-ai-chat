@@ -37,7 +37,7 @@ async function main() {
       modelId: 'gemma-4-E2B-it-web',
       loadLiteRT: async () => litert,
       liteRtWasmPath: '/litert-wasm/',
-      systemPromptOptions: { product: 'vdl-ai-chat e2e' },
+      systemPromptOptions: { product: 'vwl-ai-chat e2e' },
     });
 
     const localModelUrl = '/model-cache/gemma-4-E2B-it-web.litertlm';

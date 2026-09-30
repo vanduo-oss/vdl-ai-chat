@@ -1,4 +1,4 @@
-# @vanduo-oss/vdl-ai-chat
+# @vanduo-oss/vwl-ai-chat
 
 Headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails and CSP-safe markdown.
 
@@ -10,8 +10,8 @@ workspace next to [Vanduo Web Labs](https://github.com/vanduo-oss/labs).
 ## Install (sibling link)
 
 ```bash
-git clone https://github.com/vanduo-oss/vdl-ai-chat.git
-cd vdl-ai-chat && pnpm install && pnpm run build
+git clone https://github.com/vanduo-oss/vwl-ai-chat.git
+cd vwl-ai-chat && pnpm install && pnpm run build
 ```
 
 In the host `package.json`:
@@ -19,7 +19,7 @@ In the host `package.json`:
 ```json
 {
   "dependencies": {
-    "@vanduo-oss/vdl-ai-chat": "link:../vdl-ai-chat"
+    "@vanduo-oss/vwl-ai-chat": "link:../vwl-ai-chat"
   }
 }
 ```
@@ -29,9 +29,9 @@ Recommended default model: **Gemma 4 E2B LiteRT** (`gemma-4-E2B-it-web`). Requir
 ## Quick start
 
 ```ts
-import { AiChat, MODEL_OPTIONS } from '@vanduo-oss/vdl-ai-chat';
-import { validateLlmInput } from '@vanduo-oss/vdl-ai-chat/guardrails/llm';
-import { labsMarkdownToHtml } from '@vanduo-oss/vdl-ai-chat/markdown';
+import { AiChat, MODEL_OPTIONS } from '@vanduo-oss/vwl-ai-chat';
+import { validateLlmInput } from '@vanduo-oss/vwl-ai-chat/guardrails/llm';
+import { labsMarkdownToHtml } from '@vanduo-oss/vwl-ai-chat/markdown';
 
 const chat = new AiChat({
   // omit modelId to use gemma-4-E2B-it-web

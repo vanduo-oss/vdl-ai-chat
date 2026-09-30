@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
-  VDL_AI_CHAT_VERSION,
+  VWL_AI_CHAT_VERSION,
   MODEL_OPTIONS,
   TOOLS_UNSUPPORTED_ERROR,
   AiChat,
@@ -14,7 +14,7 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 
 describe('smoke', () => {
   it('version matches package.json', () => {
-    expect(VDL_AI_CHAT_VERSION).toBe(pkg.version);
+    expect(VWL_AI_CHAT_VERSION).toBe(pkg.version);
   });
 
   it('exposes LiteRT catalog options', () => {

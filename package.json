@@ -1,16 +1,16 @@
 {
-  "name": "@vanduo-oss/vdl-ai-chat",
+  "name": "@vanduo-oss/vwl-ai-chat",
   "version": "0.1.1",
   "private": true,
   "description": "Vanduo Web Labs headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails",
   "type": "module",
-  "homepage": "https://github.com/vanduo-oss/vdl-ai-chat#readme",
+  "homepage": "https://github.com/vanduo-oss/vwl-ai-chat#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vanduo-oss/vdl-ai-chat.git"
+    "url": "git+https://github.com/vanduo-oss/vwl-ai-chat.git"
   },
   "bugs": {
-    "url": "https://github.com/vanduo-oss/vdl-ai-chat/issues"
+    "url": "https://github.com/vanduo-oss/vwl-ai-chat/issues"
   },
   "license": "MIT",
   "author": "vanduo-oss",

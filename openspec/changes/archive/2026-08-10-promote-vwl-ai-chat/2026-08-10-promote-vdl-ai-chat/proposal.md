@@ -1,10 +1,10 @@
 ## Why
 
-Promote the labs headless AiChat engine into a standalone TypeScript package so ts-school (and other hosts) can dogfood `@vanduo-oss/vdl-ai-chat` without depending on the labs monolith.
+Promote the labs headless AiChat engine into a standalone TypeScript package so ts-school (and other hosts) can dogfood `@vanduo-oss/vwl-ai-chat` without depending on the labs monolith.
 
 ## What Changes
 
-- Standalone `@vanduo-oss/vdl-ai-chat` package (private for now) with vite lib build and `.d.ts`
+- Standalone `@vanduo-oss/vwl-ai-chat` package (private for now) with vite lib build and `.d.ts`
 - Port `ai-chat.js`, LLM/tools guardrails, and CSP-safe markdown to TypeScript
 - Vitest coverage for guardrails, markdown, smoke/version, and tool-calling helpers
 - OpenSpec becomes the source of truth for behavior
@@ -14,9 +14,9 @@ Promote the labs headless AiChat engine into a standalone TypeScript package so 
 ### New Capabilities
 
 - `repo-scaffold`: package metadata, hardened install, build, quality gates (no CI while private)
-- `vdl-ai-chat`: headless AiChat API (LiteRT default, tool calling, injectors, progress)
-- `vdl-guardrails-llm`: deterministic LLM input/output and tool-call validation
-- `vdl-markdown`: CSP-safe markdown → HTML for assistant/notes content
+- `vwl-ai-chat`: headless AiChat API (LiteRT default, tool calling, injectors, progress)
+- `vwl-guardrails-llm`: deterministic LLM input/output and tool-call validation
+- `vwl-markdown`: CSP-safe markdown → HTML for assistant/notes content
 
 ### Modified Capabilities
 
@@ -24,7 +24,7 @@ Promote the labs headless AiChat engine into a standalone TypeScript package so 
 
 ## Impact
 
-- ts-school will switch from `@vanduo-oss/vdl-engines/ai-chat.js` to this package
+- ts-school will switch from `@vanduo-oss/vwl-engines/ai-chat.js` to this package
 - Labs keeps its local copy for demos (not rewired this change)
 
 ## Non-goals
