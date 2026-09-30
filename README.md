@@ -3,7 +3,7 @@
 Headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails and CSP-safe markdown.
 
 This is a **Labs sibling repo**, not a public npm package. Consume it via `link:` /
-workspace next to [Vanduo Labs](https://github.com/vanduo-oss/labs).
+workspace next to [Vanduo Web Labs](https://github.com/vanduo-oss/labs).
 
 **Source of truth:** [`openspec/`](./openspec/). This README is a short usage guide.
 

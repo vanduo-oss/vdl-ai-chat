@@ -2,7 +2,7 @@
   "name": "@vanduo-oss/vdl-ai-chat",
   "version": "0.1.1",
   "private": true,
-  "description": "Vanduo Labs headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails",
+  "description": "Vanduo Web Labs headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails",
   "type": "module",
   "homepage": "https://github.com/vanduo-oss/vdl-ai-chat#readme",
   "repository": {

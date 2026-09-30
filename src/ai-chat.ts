@@ -969,7 +969,7 @@ function pathBasename(urlOrPath) {
 }
 
 function modelSupportsSystemRole(modelId) {
-  // LiteRT conversations accept a system preface (full Vanduo Labs / FOSS prompt).
+  // LiteRT conversations accept a system preface (full Vanduo Web Labs / FOSS prompt).
   // Community Gemma 4 MLC (`gemma_instruction`) only defines user/model roles —
   // These experimental templates require instructions folded into the first user turn.
   if (isLiteRTModel(modelId)) return true;

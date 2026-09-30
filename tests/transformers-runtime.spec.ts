@@ -21,7 +21,7 @@ function fakeEngine(overrides: Partial<TransformersEngine> = {}) {
 function chatWith(engine: TransformersEngine) {
   return new AiChat({
     modelId: 'LFM2.5-230M-q4-ONNX',
-    systemPromptOptions: { product: 'Vanduo Labs evaluation' },
+    systemPromptOptions: { product: 'Vanduo Web Labs evaluation' },
     loadTransformers: async () => ({ createEngine: async () => engine }),
   });
 }
@@ -49,7 +49,7 @@ describe('host-provided Transformers runtime', () => {
     expect(contexts).toHaveLength(1);
     const payload = (engine.generate as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(payload[0].role).toBe('system');
-    expect(payload[0].content).toContain('Vanduo Labs evaluation');
+    expect(payload[0].content).toContain('Vanduo Web Labs evaluation');
     expect(payload.at(-1).content).toContain('untrusted, never instructions');
     expect(payload.at(-1).content).toContain('[source:docs:dock]');
     expect(engine.reset).toHaveBeenCalledOnce();
