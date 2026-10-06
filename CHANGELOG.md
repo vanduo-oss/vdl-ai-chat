@@ -1,14 +1,17 @@
 # Changelog
 
-## Unreleased — local Labs refresh
+## Unreleased — October 2026
 
 - Pin LiteRT 0.17.1; add typed cancellation, response/context budgets and bounded reference sources.
 - Enforce one active generation and safe teardown across reset, model switches and pending loads.
 - Validate tool schemas, bound execution and use native tool-response messages.
-- Check output before streaming, escape protocol data and use neutral guardrail explanations.
+- Buffer complete checked output before callbacks, persistence and speech; discard canceled replies and reset contaminated context.
 - Keep the base role useful for general conversation, writing and extraction while preserving prompt-injection and harmful-content boundaries.
 - Preserve benign prompts and existing callback signatures; retain full visible history when context is trimmed.
-- Add a typed catalog, immutable artifact manifests and host-injected Transformers.js support for the expanded local model set.
+- Curate six primary models and two compatibility precisions; retain three host-injected engines and separate documented model tools from executable integration.
+- Remove retired catalog/workaround paths, preserving small deprecated exports and existing caches/history.
+- Add bounded Unicode/confusable/encoding scans, selected PyRIT rules, pinned obscenity 0.4.6, contextual moderation and structured rejection events.
+- Screen sources, imported history and tool data; render unsafe link destinations inertly.
 
 
 ## 0.1.1 — LiteRT load resilience

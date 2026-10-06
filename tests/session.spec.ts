@@ -20,8 +20,8 @@ function loaded() {
 }
 
 describe('bounded sessions', () => {
-  it('exposes five primary candidates with pinned artifacts and compatibility variants', () => {
-    expect(NEW_MODEL_IDS).toHaveLength(5);
+  it('exposes three primary candidates with pinned artifacts and compatibility variants', () => {
+    expect(NEW_MODEL_IDS).toHaveLength(3);
     for (const id of NEW_MODEL_IDS) {
       const model = MODEL_OPTIONS.find((option) => option.id === id)!;
       expect(model.experimental).toBe(true);
@@ -34,9 +34,6 @@ describe('bounded sessions', () => {
       ).toBe(true);
       expect(model.capabilities).toEqual({ chat: true, docs: true, tools: false });
     }
-    expect(MODEL_OPTIONS.find((option) => option.id === 'Qwen3.5-2B-q4f32_1-MLC')?.variantOf).toBe(
-      'Qwen3.5-2B-q4f16_1-MLC',
-    );
     expect(
       MODEL_OPTIONS.find((option) => option.id === 'LFM2.5-2.6B-q4f16-ONNX')?.externalDataFiles,
     ).toBe(2);

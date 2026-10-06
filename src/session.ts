@@ -5,8 +5,20 @@ export type ContextStatus = {
   omittedTurns: number;
   estimatedInputTokens: number;
   inputBudget: number;
+  rejectedSources?: number;
+  omittedSources?: number;
+  rejectedHistoryTurns?: number;
+};
+export type GuardrailEvent = {
+  stage: 'input' | 'source' | 'history' | 'tool-arguments' | 'tool-result' | 'output';
+  code: string;
+  ruleIds: string[];
+  sourceIndex?: number;
+  historyTurn?: number;
+  toolName?: string;
 };
 export type GenerateOptions = {
+  onGuardrail?: (event: GuardrailEvent) => void;
   signal?: AbortSignal;
   maxOutputTokens?: number;
   contextTokenBudget?: number;

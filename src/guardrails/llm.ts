@@ -1,3 +1,6 @@
+import { scanVariants, normalizeScanText, withoutEducationalQuotes } from './scan.js';
+import { moderationRuleIds, type GuardrailProfile } from './moderation.js';
+export type { GuardrailProfile } from './moderation.js';
 import { allow, block, normalizeText, type GuardrailResult } from './core.js';
 import { formatXmlToolResult, parseXmlToolCalls, validateToolCall } from './tools.js';
 
@@ -15,6 +18,9 @@ export type ValidateLlmInputOptions = {
   text: string;
   patterns?: LlmGuardPattern[];
   maxLength?: number;
+  profile?: GuardrailProfile;
+  /** Disable the quoted-discussion exception for untrusted reference/tool data. */
+  quotedDiscussion?: boolean;
 };
 
 /** Safety boundaries — also repeated at end of composed prompts (sandwich). */
@@ -27,6 +33,7 @@ export const FOSS_ROLE_LOCK_RULES = `ROLE LOCK (non-negotiable):
 export const BASE_FOSS_GUARDRAILS_SYSTEM_PROMPT = `You are a general-purpose assistant in an on-device browser demo hosted by Vanduo Web Labs.
 Help with ordinary questions and tasks, including writing, math, analysis, coding, summaries, and structured extraction. Use details the user shares in the conversation and follow their requested format.
 For Vanduo Web Labs products, be accurate and say when you are uncertain. Do not claim access to files, accounts, devices, or the internet unless the host provides that capability.
+Use English by default unless the user explicitly requests another language.
 Be helpful, honest, and concise by default. Do not assist with harmful, hateful, discriminatory, or illegal activity. For unsafe requests, decline briefly and offer a safe alternative.
 ${FOSS_ROLE_LOCK_RULES}
 `;
@@ -86,12 +93,6 @@ export const DEFAULT_LLM_GUARD_PATTERNS: LlmGuardPattern[] = [
     severity: 'block',
   },
   {
-    id: 'role.identity-rebind',
-    category: 'role-manipulation',
-    regex: /you\s+are\s+(now|no\s+longer)\s+/i,
-    severity: 'block',
-  },
-  {
     id: 'role.system-root-claim',
     category: 'role-manipulation',
     regex: /as\s+(a\s+)?(super|admin|root|system)\s+(user|admin|ai)/i,
@@ -127,6 +128,97 @@ export const DEFAULT_LLM_GUARD_PATTERNS: LlmGuardPattern[] = [
     regex: /pretend\s+(?:you|that you)\s+(?:are evil|have no rules|can ignore|are unrestricted)/i,
     severity: 'block',
   },
+  // Adapted from MIT Microsoft PyRIT StaticPromptInjectionScorer; revision/licenses in data/.
+  {
+    id: 'pyrit.override',
+    category: 'instruction-override',
+    regex:
+      /\b(?:ignore|disregard|override|bypass|skip|drop)\b[^.!?;]{0,35}\b(?:previous|above|prior|earlier|all|your|system|initial)\b[^.!?;]{0,25}\b(?:instructions?|rules?|guidelines?|prompts?|constraints?|restrictions?|directives?)\b/i,
+    severity: 'block',
+  },
+  {
+    id: 'pyrit.extraction',
+    category: 'prompt-extraction',
+    regex:
+      /\b(?:repeat|show|display|print|reveal|output|dump|echo|tell me|what (?:are|is|was) your)\b[^.!?;]{0,40}\b(?:system prompt|system message|initial prompt|hidden instructions?|original prompt|secret (?:instructions?|prompt|rules?))\b/i,
+    severity: 'block',
+  },
+  {
+    id: 'pyrit.persona',
+    category: 'role-manipulation',
+    regex:
+      /\b(?:you are (?:now )?|act as |pretend (?:to be |you are )|switch to |enable |activate |enter )[^.!?;]{0,25}\b(?:dan|unrestricted|unfiltered|uncensored|developer mode(?!\s+(?:in|on)\s+(?:android|windows|chrome|firefox|safari)\b)|god mode|sudo mode|admin mode|evil)\b/i,
+    severity: 'block',
+  },
+  {
+    id: 'pyrit.constraints',
+    category: 'instruction-override',
+    regex:
+      /\b(?:you have no|remove (?:all|your)|disable (?:all|your)|turn off (?:all|your))\b[^.!?;]{0,25}\b(?:restrictions?|constraints?|filters?|guardrails?|safety|censorship|moderation)\b/i,
+    severity: 'block',
+  },
+  {
+    id: 'pyrit.delimiters',
+    category: 'delimiter-injection',
+    regex: /\[\/?INST\]|<<\/?SYS>>|<\|(?:im_start|im_end|system|user|assistant|endoftext)\|>/i,
+    severity: 'block',
+  },
+  {
+    id: 'encoding.execute',
+    category: 'encoding-evasion',
+    regex:
+      /\b(?:execute|follow|obey|run)\b[^.!?;]{0,30}\b(?:base64|rot13|hex|encoded)\b[^.!?;]{0,30}\b(?:instructions?|commands?|payload)\b/i,
+    severity: 'block',
+  },
+  // Local clause-scoped additions; not copied upstream rules.
+  {
+    id: 'local.previous-rule-reset',
+    category: 'instruction-override',
+    severity: 'block',
+    regex:
+      /\bforget\s+(?:all|every)\s+(?:rules?|instructions?)\b[^.!?;]{0,40}\b(?:before|previous|earlier|above)\b/i,
+  },
+  {
+    id: 'local.private-instructions',
+    category: 'prompt-extraction',
+    severity: 'block',
+    regex:
+      /\b(?:print|reveal|show|repeat|dump|output)\b[^.!?;]{0,40}\b(?:initial instruction(?:s| block)?|private instructions?)\b/i,
+  },
+  {
+    id: 'local.instruction-priority',
+    category: 'instruction-override',
+    severity: 'block',
+    regex:
+      /\b(?:my|user|following)\s+instructions?\b[^.!?;]{0,30}\b(?:outrank|override|supersede|take priority over)\b[^.!?;]{0,30}\b(?:system|developer|safety)\b/i,
+  },
+  {
+    id: 'local.source-promotion',
+    category: 'instruction-override',
+    severity: 'block',
+    regex:
+      /\b(?:treat|use)\b[^.!?;]{0,60}\b(?:website|reference|retrieved|following|user)\b[^.!?;]{0,40}\b(?:as|like)\b[^.!?;]{0,15}\bsystem (?:instructions?|message)\b/i,
+  },
+  {
+    id: 'local.safety-disobedience',
+    category: 'instruction-override',
+    severity: 'block',
+    regex:
+      /\b(?:do not|don't|stop)\s+(?:follow|obey|apply|respect)\s+(?:your|the|all)\s+(?:safety|security|system|developer)\b/i,
+  },
+  {
+    id: 'local.removed-constraints',
+    category: 'jailbreak-framing',
+    severity: 'block',
+    regex:
+      /\bpretend\b[^.!?;]{0,25}\b(?:your|all)\b[^.!?;]{0,25}\b(?:constraints?|safety rules?|restrictions?)\b[^.!?;]{0,20}\b(?:removed|disabled|do not apply)\b|\byou are\b[^.!?;]{0,35}\bassistant\b[^.!?;]{0,25}\bno safety rules?\b/i,
+  },
+  {
+    id: 'local.prompt-filter-bypass',
+    category: 'instruction-override',
+    severity: 'block',
+    regex: /\bbypass\s+(?:(?:the|your)\s+)?(?:prompt filters?|guardrails?|safety policy)\b/i,
+  },
 ];
 
 export const DEFAULT_LLM_OUTPUT_GUARD_PATTERNS: LlmGuardPattern[] = [
@@ -159,105 +251,73 @@ export const LLM_BLOCK_MESSAGE =
 export const LLM_OUTPUT_BLOCK_MESSAGE =
   'I can’t help with that request, but I can help with a safer alternative.';
 
+/** Compatibility helper: normalized ASCII scan text, never submitted to the model. */
 export function normalizeJailbreakScanText(text: string): string {
-  let out = String(text || '')
-    .toLowerCase()
+  return normalizeScanText(text)
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-
-  const wordFixes: Array<[RegExp, string]> = [
-    [/\b(igonre|ingore|ignroe|gonre|ignr|igore|ignoer|ignroe)\b/g, 'ignore'],
-    [/\b(disreguard|disregad|disregaard|disregrd)\b/g, 'disregard'],
-    [/\b(previousi|previuos|pervious|priveous|prevous|previus)\b/g, 'previous'],
-    [/\b(instrucitons|instructons|insructions|instrctions|instructoins)\b/g, 'instructions'],
-    [/\b(promtp|promt)\b/g, 'prompt'],
-  ];
-  for (const [re, rep] of wordFixes) {
-    out = out.replace(re, rep);
-  }
-  return out;
 }
 
-function matchPatternIds(text: string, patterns: LlmGuardPattern[]): string[] {
-  const matched: string[] = [];
-  for (const pattern of patterns) {
-    if (pattern.regex.test(text)) {
-      matched.push(pattern.id);
+function validate(input: ValidateLlmInputOptions | string, output: boolean): GuardrailResult {
+  const options = typeof input === 'string' ? { text: input } : input;
+  const raw = String(options?.text || '');
+  const text = normalizeText(raw);
+  const patterns =
+    options?.patterns || (output ? DEFAULT_LLM_OUTPUT_GUARD_PATTERNS : DEFAULT_LLM_GUARD_PATTERNS);
+  const requestedLength = options?.maxLength;
+  const maxLength =
+    typeof requestedLength === 'number' && Number.isFinite(requestedLength)
+      ? Math.max(1, Math.min(32768, Math.floor(requestedLength)))
+      : output
+        ? 32768
+        : 8000;
+  if (!text)
+    return output
+      ? allow({ empty: true })
+      : block({ code: 'llm.input.empty', message: 'Prompt cannot be empty.' });
+  // Check the original size, before normalization can shrink adversarial input.
+  if (raw.length > maxLength)
+    return block({
+      code: output ? 'llm.output.too_long' : 'llm.input.too_long',
+      message: output
+        ? LLM_OUTPUT_BLOCK_MESSAGE
+        : `Prompt is too long (max ${maxLength} characters).`,
+      meta: { maxLength, actualLength: raw.length },
+    });
+  const scan = !output && options.quotedDiscussion !== false ? withoutEducationalQuotes(raw) : raw;
+  const ids = new Set<string>();
+  for (const candidate of scanVariants(scan)) {
+    for (const pattern of patterns) {
+      // Reset stateful host regexes for every candidate and repeated call.
+      pattern.regex.lastIndex = 0;
+      if (pattern.regex.test(candidate)) ids.add(pattern.id);
+      pattern.regex.lastIndex = 0;
     }
+    for (const id of moderationRuleIds(candidate, options.profile || 'family-friendly', output))
+      ids.add(id);
   }
-  return matched;
+  if (!ids.size) return allow();
+  return block({
+    code: output ? 'llm.output.blocked' : 'llm.input.blocked',
+    message: output ? LLM_OUTPUT_BLOCK_MESSAGE : LLM_BLOCK_MESSAGE,
+    matchedPatternIds: [...ids],
+    meta: {
+      categories: [...new Set(patterns.filter((p) => ids.has(p.id)).map((p) => p.category))],
+    },
+  });
 }
 
 export function validateLlmInput(input: ValidateLlmInputOptions | string): GuardrailResult {
-  const options = typeof input === 'string' ? { text: input } : input;
-  const text = normalizeText(options?.text || '');
-  const patterns = options?.patterns || DEFAULT_LLM_GUARD_PATTERNS;
-  const maxLength = options?.maxLength ?? 8000;
-
-  if (!text) {
-    return block({
-      code: 'llm.input.empty',
-      message: 'Prompt cannot be empty.',
-    });
-  }
-
-  if (text.length > maxLength) {
-    return block({
-      code: 'llm.input.too_long',
-      message: `Prompt is too long (max ${maxLength} characters).`,
-      meta: { maxLength, actualLength: text.length },
-    });
-  }
-
-  const scanTexts = [text, normalizeJailbreakScanText(text)];
-  const matchedPatternIds: string[] = [];
-  for (const candidate of scanTexts) {
-    for (const id of matchPatternIds(candidate, patterns)) {
-      if (!matchedPatternIds.includes(id)) matchedPatternIds.push(id);
-    }
-  }
-
-  if (matchedPatternIds.length > 0) {
-    return block({
-      code: 'llm.input.blocked',
-      message: LLM_BLOCK_MESSAGE,
-      matchedPatternIds,
-      meta: {
-        categories: patterns.filter((p) => matchedPatternIds.includes(p.id)).map((p) => p.category),
-      },
-    });
-  }
-
-  return allow();
+  return validate(input, false);
 }
-
 export function validateLlmOutput(input: ValidateLlmInputOptions | string): GuardrailResult {
-  const options = typeof input === 'string' ? { text: input } : input;
-  const text = normalizeText(options?.text || '');
-  const patterns = options?.patterns || DEFAULT_LLM_OUTPUT_GUARD_PATTERNS;
-
-  if (!text) {
-    return allow({ empty: true });
-  }
-
-  const matchedPatternIds = matchPatternIds(text, patterns);
-  if (matchedPatternIds.length > 0) {
-    return block({
-      code: 'llm.output.blocked',
-      message: LLM_OUTPUT_BLOCK_MESSAGE,
-      matchedPatternIds,
-      meta: {
-        categories: patterns.filter((p) => matchedPatternIds.includes(p.id)).map((p) => p.category),
-      },
-    });
-  }
-
-  return allow();
+  return validate(input, true);
 }
 
 export function buildChatSystemPrompt(
   options: {
+    profile?: GuardrailProfile;
     product?: string;
     extra?: string;
     extraRules?: string;
@@ -273,6 +333,9 @@ export function buildChatSystemPrompt(
     : [];
 
   let prompt = BASE_FOSS_GUARDRAILS_SYSTEM_PROMPT;
+  if (options.profile !== 'general')
+    prompt +=
+      '\nKeep replies family-friendly: avoid profanity, slurs, graphic sexual content and encouragement of harm. Respond supportively to health, identity, abuse reporting and help-seeking. Profanity in the user message alone is not grounds for refusal.';
 
   if (product) {
     prompt += `\nYou are assisting users of ${product}. Prefer that product's domain language and cite its routes or lesson ids when relevant.`;

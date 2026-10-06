@@ -13,6 +13,8 @@ import {
   parseXmlToolCalls,
   formatXmlToolResult,
 } from './guardrails/llm.js';
+import type { GuardrailProfile } from './guardrails/moderation.js';
+import type { GuardrailResult } from './guardrails/core.js';
 import { toGuardrailError } from './guardrails/core.js';
 import {
   abortError,
@@ -23,6 +25,7 @@ import {
   runBoundedTool,
   type GenerateOptions,
   type ChatMessage,
+  type GuardrailEvent,
 } from './session.js';
 import { cancelRuntime, disposeRuntime } from './runtime.js';
 import type { TransformersRuntime, TransformersEngine } from './transformers-runtime.js';
@@ -383,11 +386,6 @@ function isLiteRTModel(modelId) {
   return modelBackend(modelId) === 'litert';
 }
 
-function isWebLLMGemmaMlC(modelId) {
-  const option = getModelOption(modelId);
-  return option?.family === 'gemma4' && modelBackend(modelId) === 'webllm';
-}
-
 function extractLiteRTText(response) {
   const parts = response?.content;
   if (typeof response === 'string') return response;
@@ -484,9 +482,9 @@ function visibleGenerationText(text: string): string {
  * @param {string} text
  * @returns {string}
  */
-export function applyOutputGuardrails(text) {
+export function applyOutputGuardrails(text, profile: GuardrailProfile = 'family-friendly') {
   const cleaned = sanitizeModelReply(text) || String(text || '').trim();
-  const check = validateLlmOutput({ text: cleaned });
+  const check = validateLlmOutput({ text: cleaned, profile });
   if (!check.allowed) {
     return check.message || LLM_OUTPUT_BLOCK_MESSAGE;
   }
@@ -968,26 +966,12 @@ function pathBasename(urlOrPath) {
   return parts[parts.length - 1] || cleaned;
 }
 
-function modelSupportsSystemRole(modelId) {
-  // LiteRT conversations accept a system preface (full Vanduo Web Labs / FOSS prompt).
-  // Community Gemma 4 MLC (`gemma_instruction`) only defines user/model roles —
-  // These experimental templates require instructions folded into the first user turn.
-  if (isLiteRTModel(modelId)) return true;
-  if (isWebLLMGemmaMlC(modelId)) return false;
-  return true;
-}
-
 function buildChatPayload(modelId, historyMessages, systemPrompt = buildChatSystemPrompt()) {
   // Always copy — WebLLM/request holders must not share our mutable history array.
   const history = historyMessages.map((message) => ({
     role: message.role,
     content: message.content,
   }));
-  if (!modelSupportsSystemRole(modelId)) {
-    const firstUser = history.find((message) => message.role === 'user');
-    if (firstUser) firstUser.content = `${systemPrompt}\n\nUser message:\n${firstUser.content}`;
-    return history;
-  }
   return [{ role: 'system', content: systemPrompt }, ...history];
 }
 
@@ -1142,6 +1126,8 @@ export const InputGuardrail = {
 // ═══════════════════════════════════════════════════════════════════════
 
 export type AiChatOptions = {
+  guardrailProfile?: GuardrailProfile;
+  onGuardrail?: (event: GuardrailEvent) => void;
   modelId?: string;
   systemPromptOptions?: Record<string, unknown>;
   toolProtocol?: 'auto' | 'native' | 'xml';
@@ -1170,6 +1156,8 @@ export class AiChat {
   _customLoadWebLLM: ((...args: any[]) => any) | null;
   _liteRtWasmPath: string | null;
 
+  private _guardrailProfile: GuardrailProfile;
+  private _onGuardrail?: (event: GuardrailEvent) => void;
   private _loadTransformers?: () => Promise<TransformersRuntime>;
   private _loadAbort = new AbortController();
   private _active: AbortController | null = null;
@@ -1183,6 +1171,8 @@ export class AiChat {
   private _hadSources = false;
 
   constructor(options: AiChatOptions = {}) {
+    this._guardrailProfile = options.guardrailProfile || 'family-friendly';
+    this._onGuardrail = options.onGuardrail;
     this._loadTransformers = options.loadTransformers;
     this.modelId = options.modelId || MODEL_OPTIONS[0].id;
     this.engine = null;
@@ -1191,7 +1181,6 @@ export class AiChat {
     this._progressSubscribers = [];
     this._isLoaded = false;
     this._isLoading = false;
-    // WebLLM Gemma MLC: resetChat() does not reliably clear KV — next cold turn must reload.
     this._needsEngineReload = false;
     /** @type {AiToolDefinition[]} */
     this._tools = [];
@@ -1249,16 +1238,19 @@ export class AiChat {
   _composeSystemPrompt() {
     return buildChatSystemPrompt({
       ...this._systemPromptOptions,
+      profile: this._guardrailProfile,
       toolsEnabled: this._tools.length > 0,
       toolNames: this._tools.map((t) => t.name),
     });
   }
 
   _toolsSupportedForModel() {
-    return isLiteRTModel(this.modelId) && !getLiteRTRuntimeBlockReason(this.modelId);
+    return !!getModelOption(this.modelId)?.capabilities?.tools;
   }
 
   async setModelId(modelId: string, options: Record<string, any> = {}) {
+    if (!getModelOption(modelId))
+      throw new Error(`Model ${modelId} is not in the supported catalog. Choose a retained model.`);
     const { resetMessages = false, force = false } = options;
     this.cancel();
     await this._settled;
@@ -1349,6 +1341,39 @@ export class AiChat {
     };
   }
 
+  private _reportGuardrail(
+    stage: GuardrailEvent['stage'],
+    result: GuardrailResult,
+    options: GenerateOptions = {},
+    identity: Partial<GuardrailEvent> = {},
+  ) {
+    (options.onGuardrail || this._onGuardrail)?.({
+      ...identity,
+      stage,
+      code: result.code || 'guardrail.blocked',
+      ruleIds: result.matchedPatternIds || [],
+    });
+  }
+
+  private _checkInput(text: string, options: GenerateOptions) {
+    const guard = validateLlmInput({ text, profile: this._guardrailProfile });
+    if (!guard.allowed) {
+      this._reportGuardrail('input', guard, options);
+      throw toGuardrailError(guard);
+    }
+  }
+
+  private _checkedReply(reply: string, options: GenerateOptions): string {
+    const cleaned = sanitizeModelReply(reply);
+    const guard = validateLlmOutput({ text: cleaned, profile: this._guardrailProfile });
+    if (!guard.allowed) {
+      this._reportGuardrail('output', guard, options);
+      this._needsEngineReload = true;
+      return LLM_OUTPUT_BLOCK_MESSAGE;
+    }
+    return cleaned;
+  }
+
   private async _prepareContext(text: string, options: GenerateOptions) {
     const windowTokens = boundedInteger(
       options.contextTokenBudget,
@@ -1363,14 +1388,81 @@ export class AiChat {
     );
     if (isLiteRTModel(this.modelId) && priorOutputTokens !== this._outputTokens)
       this._needsEngineReload = true;
-    const input = text + sourceContext(options.sources);
+    let rejectedSources = 0,
+      rejectedHistoryTurns = 0;
+    const sources = (options.sources || [])
+      .slice(0, 4)
+      .map((source) => ({
+        id: String(source.id).slice(0, 120),
+        title: String(source.title).slice(0, 200),
+        text: String(source.text).slice(0, 1600),
+      }))
+      .filter((source, sourceIndex) => {
+        const guard = validateLlmInput({
+          text: `${source.id} ${source.title} ${source.text}`,
+          profile: this._guardrailProfile,
+          quotedDiscussion: false,
+        });
+        if (guard.allowed) return true;
+        rejectedSources++;
+        this._reportGuardrail('source', guard, options, { sourceIndex });
+        return false;
+      });
+    const history: ChatMessage[] = [];
+    for (let i = 0; i < this.messages.length; i++) {
+      if (this.messages[i].role !== 'user' || this.messages[i + 1]?.role !== 'assistant') {
+        rejectedHistoryTurns++;
+        this._reportGuardrail(
+          'history',
+          {
+            allowed: false,
+            code: 'llm.history.invalid_turn',
+            matchedPatternIds: ['history.incomplete-turn'],
+          },
+          options,
+          { historyTurn: Math.floor(i / 2) },
+        );
+        continue;
+      }
+      const user = this.messages[i],
+        assistant = this.messages[++i];
+      const inputGuard = validateLlmInput({ text: user.content, profile: this._guardrailProfile });
+      const outputGuard = validateLlmOutput({
+        text: assistant.content,
+        profile: this._guardrailProfile,
+      });
+      const injectionGuard = validateLlmInput({
+        text: assistant.content,
+        maxLength: 32768,
+        profile: this._guardrailProfile,
+      });
+      const guard = !inputGuard.allowed
+        ? inputGuard
+        : !outputGuard.allowed
+          ? outputGuard
+          : injectionGuard;
+      if (!guard.allowed) {
+        rejectedHistoryTurns++;
+        this._reportGuardrail('history', guard, options, { historyTurn: Math.floor(i / 2) });
+      } else history.push(user, assistant);
+    }
+    if (rejectedSources || rejectedHistoryTurns) this._needsEngineReload = true;
+    const input = text + sourceContext(sources);
     const context = selectContext(
-      this.messages,
+      history,
       this._composeSystemPrompt(),
       input,
       windowTokens,
       this._outputTokens,
     );
+    context.status.rejectedSources = rejectedSources;
+    context.status.omittedSources = Math.max(0, (options.sources?.length || 0) - 4);
+    context.status.rejectedHistoryTurns = rejectedHistoryTurns;
+    options.onContext?.(context.status);
+    if (options.sources?.length && !sources.length)
+      throw new Error(
+        'All supplied reference evidence was rejected by guardrails. Choose other sources.',
+      );
     const start = context.status.omittedTurns;
     // Rebuild after trimming, source changes, cancellation or a failed turn.
     if (start !== this._lastContextStart || this._hadSources || options.sources?.length)
@@ -1382,7 +1474,6 @@ export class AiChat {
     this._lastContextStart = start;
     this._hadSources = !!options.sources?.length;
     this._replay = context.messages;
-    options.onContext?.(context.status);
     return { input, history: context.messages };
   }
 
@@ -1397,9 +1488,9 @@ export class AiChat {
       }
     }
     const systemContent = this._composeSystemPrompt();
-    const preface: any = modelSupportsSystemRole(this.modelId)
-      ? { messages: [{ role: 'system', content: systemContent }, ...this._replay] }
-      : undefined;
+    const preface: any = {
+      messages: [{ role: 'system', content: systemContent }, ...this._replay],
+    };
 
     // Prefer native tools when protocol allows and tools are registered.
     if (
@@ -1497,8 +1588,7 @@ export class AiChat {
       throw new Error('generateWithTools requires an execute(name, args) callback.');
     if (!this._toolsSupportedForModel()) throw new Error(TOOLS_UNSUPPORTED_ERROR);
     if (!this._tools.length) throw new Error('No tools registered. Call registerTools() first.');
-    const guard = validateLlmInput({ text: userText });
-    if (!guard.allowed) throw toGuardrailError(guard);
+    this._checkInput(userText, options);
     if (!this.isLoaded()) throw new Error('Model not loaded. Call load() first.');
     const operation = this._begin(options);
     const rounds = boundedInteger(options.maxRounds, 4, 8);
@@ -1524,7 +1614,7 @@ export class AiChat {
         if (!calls.length) {
           if (/<tool_call\b/i.test(reply))
             throw new Error('Malformed or unsupported tool protocol.');
-          const final = applyOutputGuardrails(reply);
+          const final = this._checkedReply(reply, options);
           if (!final)
             throw new Error(`Model ${this.modelId} returned an empty response during tool loop.`);
           this.messages.push(
@@ -1540,11 +1630,26 @@ export class AiChat {
         for (const call of calls) {
           operation.check();
           if (++callCount > maxCalls) throw new Error('Tool call limit exceeded.');
-          const validation = validateToolCall({
+          let validation = validateToolCall({
             name: call.name,
             args: call.args,
             allowlist: this._tools,
           });
+          if (validation.allowed)
+            validation = validateLlmInput({
+              text: JSON.stringify(call.args),
+              maxLength: 16384,
+              profile: this._guardrailProfile,
+              quotedDiscussion: false,
+            });
+          const knownTool = this._tools.some((tool) => tool.name === call.name);
+          if (!validation.allowed)
+            this._reportGuardrail(
+              'tool-arguments',
+              validation,
+              options,
+              knownTool ? { toolName: call.name } : {},
+            );
           let result: unknown;
           if (!validation.allowed) result = { error: validation.code, message: validation.message };
           else {
@@ -1567,8 +1672,34 @@ export class AiChat {
             }
           }
           operation.check();
-          results.push({ name: call.name, result });
-          options.onTool?.({ name: call.name, args: call.args, result });
+          const resultGuard = validateLlmInput({
+            text: JSON.stringify(result ?? null),
+            maxLength: 32768,
+            profile: this._guardrailProfile,
+            quotedDiscussion: false,
+          });
+          if (!resultGuard.allowed) {
+            this._reportGuardrail(
+              'tool-result',
+              resultGuard,
+              options,
+              knownTool ? { toolName: call.name } : {},
+            );
+            result = { error: 'tool.result.blocked' };
+          }
+          // Unknown names and rejected arguments must never escape via callbacks or protocol.
+          if (knownTool) {
+            results.push({ name: call.name, result });
+            options.onTool?.({
+              name: call.name,
+              args: validation.allowed ? call.args : {},
+              result,
+            });
+          } else {
+            const rejected = { error: 'tool.name.not_allowed' };
+            results.push({ name: 'unknown', result: rejected });
+            options.onTool?.({ name: 'unknown', args: {}, result: rejected });
+          }
         }
         pending =
           this._toolProtocol === 'xml'
@@ -1585,6 +1716,7 @@ export class AiChat {
       throw new Error(`Tool loop exceeded maxRounds (${rounds}) without a final assistant reply.`);
     } catch (err) {
       this._needsEngineReload = true;
+      if (operation.controller.signal.aborted) throw abortError();
       throw err;
     } finally {
       operation.finish();
@@ -1600,6 +1732,7 @@ export class AiChat {
     let rawMessage: any = null;
     const calls: any[] = [];
     const accept = (chunk) => {
+      if (this._active?.signal.aborted) throw abortError();
       rawMessage = chunk;
       if (chunk?.tool_calls) calls.push(...chunk.tool_calls);
       const delta = extractLiteRTText(chunk);
@@ -1609,6 +1742,7 @@ export class AiChat {
           : delta.startsWith(reply)
             ? delta
             : reply + delta;
+      if (reply.length > 131072) throw new Error('Model reply exceeded the processing limit.');
       const visible = visibleGenerationText(reply);
       if (onUpdate && visible) onUpdate(visible);
     };
@@ -1621,6 +1755,10 @@ export class AiChat {
   }
 
   async load() {
+    if (!getModelOption(this.modelId))
+      throw new Error(
+        `Model ${this.modelId} is not in the supported catalog. Choose Gemma 4 E2B or another retained model.`,
+      );
     // Heal inconsistent state: disposed engine with stale loaded flag would
     // no-op forever and leave hosts showing Ready without a usable runtime.
     if (this._isLoaded && this.engine) return;
@@ -1854,11 +1992,6 @@ export class AiChat {
     return this._isLoading;
   }
 
-  _chatOptionsForReload() {
-    const option = getModelOption(this.modelId);
-    return option?.overrides ? { ...option.overrides } : undefined;
-  }
-
   async _reloadEngine(reason = 'reset') {
     if (modelBackend(this.modelId) === 'transformers') {
       await this.engine.reset();
@@ -1870,17 +2003,13 @@ export class AiChat {
       this._needsEngineReload = false;
       return;
     }
-    // resetChat clears a normal WebLLM conversation without evicting or re-uploading
-    // model weights. Retain full reload for the Gemma MLC empty-stream workaround.
-    if (!isWebLLMGemmaMlC(this.modelId) && typeof this.engine?.resetChat === 'function') {
+    // Reset the conversation without evicting model weights.
+    if (typeof this.engine?.resetChat === 'function') {
       await this.engine.resetChat();
       this._needsEngineReload = false;
       return;
     }
     if (!this.engine || typeof this.engine.reload !== 'function') {
-      if (typeof this.engine?.resetChat === 'function') {
-        await this.engine.resetChat();
-      }
       this._needsEngineReload = false;
       return;
     }
@@ -1888,12 +2017,7 @@ export class AiChat {
       stage: 'init',
       message: reason === 'reset' ? 'Resetting model state…' : 'Refreshing model state…',
     });
-    const chatOpts = this._chatOptionsForReload();
-    if (chatOpts) {
-      await this.engine.reload(this.modelId, chatOpts);
-    } else {
-      await this.engine.reload(this.modelId);
-    }
+    await this.engine.reload(this.modelId);
     this._needsEngineReload = false;
     this._emitProgress({ stage: 'ready', message: 'Model ready.' });
   }
@@ -1912,11 +2036,22 @@ export class AiChat {
 
     let reply = '';
     let usage = null;
+    let oversized = false;
 
     for await (const chunk of chunks) {
+      // Drain the worker iterator after interrupt so WebLLM releases its generation lock.
+      if (this._active?.signal.aborted || oversized) {
+        this.engine?.interruptGenerate?.();
+        continue;
+      }
       if (chunk.usage) usage = chunk.usage;
       const delta = extractCompletionResponseText(chunk);
       if (!delta) continue;
+      if (reply.length + delta.length > 131072) {
+        oversized = true;
+        this.engine?.interruptGenerate?.();
+        continue;
+      }
       reply += delta;
       const cleanedPartial = visibleGenerationText(reply);
       if (onUpdate && cleanedPartial) onUpdate(cleanedPartial);
@@ -1925,6 +2060,7 @@ export class AiChat {
     reply = visibleGenerationText(reply);
 
     if (this._active?.signal.aborted) throw abortError();
+    if (oversized) throw new Error('Model reply exceeded the processing limit.');
     if (!reply.trim()) {
       await this._reloadEngine('empty');
       const completion = await this.engine.chat.completions.create({
@@ -1949,21 +2085,12 @@ export class AiChat {
       typeof optionsOrUpdate === 'function' || optionsOrUpdate == null
         ? { onUpdate: optionsOrUpdate || undefined, onFinish: onFinish || undefined }
         : optionsOrUpdate;
-    const guard = validateLlmInput({ text: userText });
-    if (!guard.allowed) throw toGuardrailError(guard);
+    this._checkInput(userText, options);
     if (!this.isLoaded()) throw new Error('Model not loaded. Call load() first.');
     const operation = this._begin(options);
-    let blocked = false;
-    let displayed = '';
-    const update = (partial: string) => {
+    // Backend chunks stay internal until the complete reply has passed validation.
+    const update = (_partial: string) => {
       operation.check();
-      const safe = applyOutputGuardrails(partial);
-      if (safe === LLM_OUTPUT_BLOCK_MESSAGE) blocked = true;
-      // Keep tool protocol and thought channels out of the visible stream.
-      if (!/<(?:tool_call|tool_result)\b/i.test(partial)) {
-        displayed = blocked ? LLM_OUTPUT_BLOCK_MESSAGE : safe;
-        options.onUpdate?.(displayed);
-      }
     };
     try {
       const { input, history } = await this._prepareContext(userText, options);
@@ -2002,13 +2129,11 @@ export class AiChat {
           );
         this._needsEngineReload = false;
       } else {
-        const broken = isWebLLMGemmaMlC(this.modelId);
-        if (this._needsEngineReload || (broken && this.messages.length))
-          await this._reloadEngine('reset');
+        if (this._needsEngineReload) await this._reloadEngine('reset');
         operation.check();
         const payload = buildChatPayload(
           this.modelId,
-          [...(broken ? [] : history), { role: 'user', content: input }],
+          [...history, { role: 'user', content: input }],
           this._composeSystemPrompt(),
         );
         const config = generationConfigForModel(this.modelId);
@@ -2023,14 +2148,15 @@ export class AiChat {
         throw new Error(
           `Model ${this.modelId} returned an empty response. Reload the model and try again.`,
         );
-      const safe = blocked ? LLM_OUTPUT_BLOCK_MESSAGE : applyOutputGuardrails(result.reply);
+      const safe = this._checkedReply(result.reply, options);
       this.messages.push({ role: 'user', content: userText }, { role: 'assistant', content: safe });
       if (safe !== result.reply) this._needsEngineReload = true;
-      if (displayed !== safe) options.onUpdate?.(safe);
+      options.onUpdate?.(safe);
       options.onFinish?.(result.usage);
       return safe;
     } catch (err) {
       this._needsEngineReload = true;
+      if (operation.controller.signal.aborted) throw abortError();
       throw err;
     } finally {
       operation.finish();
@@ -2042,7 +2168,7 @@ export class AiChat {
     this._replay = [];
     this._lastContextStart = 0;
     this.messages = [];
-    // LiteRT + WebLLM Gemma MLC: next generate() opens a fresh conversation / reloads.
+    // Rebuild model context before the next turn.
     this._needsEngineReload = true;
   }
 

@@ -13,6 +13,27 @@ function escapeHtml(s: unknown): string {
 
 const LINK_RE = /\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 
+/** Reject obfuscated schemes and network-path references before HTML escaping. */
+function safeLinkDestination(href: string): boolean {
+  let decoded = href;
+  for (let i = 0; i < 2; i++) {
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {
+      return false;
+    }
+  }
+  if (
+    /[\p{Cc}\p{Cf}\\]/u.test(decoded) ||
+    /&(?:#(?:x[0-9a-f]+|[0-9]+);?|(?:colon|tab|newline);)/i.test(decoded) ||
+    decoded.startsWith('//')
+  )
+    return false;
+  const scheme = decoded.match(/^([a-z][a-z0-9+.-]*):/i);
+  if (scheme) return /^https?$/i.test(scheme[1]) && /^https?:\/\/[^/]/i.test(decoded);
+  return !decoded.split(/[/?#]/, 1)[0].includes(':');
+}
+
 function formatLinksAndEscape(text: string): string {
   const segments: Array<{ type: string; v?: string; label?: string; href?: string }> = [];
   const re = new RegExp(LINK_RE.source, 'g');
@@ -27,13 +48,15 @@ function formatLinksAndEscape(text: string): string {
 
   let out = '';
   for (const seg of segments) {
-    if (seg.type === 'a') {
+    if (seg.type === 'a' && safeLinkDestination(seg.href || '')) {
       out +=
         '<a href="' +
         escapeHtml(seg.href) +
         '" rel="noopener noreferrer">' +
         formatInlineText(seg.label || '') +
         '</a>';
+    } else if (seg.type === 'a') {
+      out += formatInlineText(seg.label || '');
     } else {
       out += escapeHtml(seg.v);
     }
