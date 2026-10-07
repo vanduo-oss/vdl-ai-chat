@@ -27,6 +27,7 @@ import {
   type ChatMessage,
   type GuardrailEvent,
 } from './session.js';
+import { CheckedDeliveryGate, visibleReply } from './checked-delivery.js';
 import { cancelRuntime, disposeRuntime } from './runtime.js';
 import type { TransformersRuntime, TransformersEngine } from './transformers-runtime.js';
 
@@ -1138,6 +1139,7 @@ export type AiChatOptions = {
 };
 
 export class AiChat {
+  private _previewGate: CheckedDeliveryGate | null = null;
   static VERSION = VWL_AI_CHAT_VERSION;
 
   modelId: string;
@@ -1364,7 +1366,7 @@ export class AiChat {
   }
 
   private _checkedReply(reply: string, options: GenerateOptions): string {
-    const cleaned = sanitizeModelReply(reply);
+    const cleaned = sanitizeModelReply(visibleReply(reply));
     const guard = validateLlmOutput({ text: cleaned, profile: this._guardrailProfile });
     if (!guard.allowed) {
       this._reportGuardrail('output', guard, options);
@@ -2040,7 +2042,7 @@ export class AiChat {
 
     for await (const chunk of chunks) {
       // Drain the worker iterator after interrupt so WebLLM releases its generation lock.
-      if (this._active?.signal.aborted || oversized) {
+      if (this._active?.signal.aborted || oversized || this._previewGate?.blocked) {
         this.engine?.interruptGenerate?.();
         continue;
       }
@@ -2061,6 +2063,7 @@ export class AiChat {
 
     if (this._active?.signal.aborted) throw abortError();
     if (oversized) throw new Error('Model reply exceeded the processing limit.');
+    if (this._previewGate?.blocked) throw new Error('Output rejected by guardrails.');
     if (!reply.trim()) {
       await this._reloadEngine('empty');
       const completion = await this.engine.chat.completions.create({
@@ -2088,9 +2091,18 @@ export class AiChat {
     this._checkInput(userText, options);
     if (!this.isLoaded()) throw new Error('Model not loaded. Call load() first.');
     const operation = this._begin(options);
-    // Backend chunks stay internal until the complete reply has passed validation.
-    const update = (_partial: string) => {
+    const gate =
+      options.delivery === 'checked-stream'
+        ? new CheckedDeliveryGate(this._guardrailProfile, options.onPreview, (guard) => {
+            this._reportGuardrail('output', guard, options);
+            this._needsEngineReload = true;
+            cancelRuntime(this._conversation, this.engine);
+          })
+        : null;
+    this._previewGate = gate;
+    const update = (partial: string) => {
       operation.check();
+      gate?.accept(partial);
     };
     try {
       const { input, history } = await this._prepareContext(userText, options);
@@ -2144,21 +2156,36 @@ export class AiChat {
         );
       }
       operation.check();
-      if (!result.reply.trim())
+      if (!result.reply.trim() && !gate?.blocked)
         throw new Error(
           `Model ${this.modelId} returned an empty response. Reload the model and try again.`,
         );
-      const safe = this._checkedReply(result.reply, options);
+      const safe = gate?.blocked
+        ? LLM_OUTPUT_BLOCK_MESSAGE
+        : this._checkedReply(result.reply, options);
       this.messages.push({ role: 'user', content: userText }, { role: 'assistant', content: safe });
       if (safe !== result.reply) this._needsEngineReload = true;
+      gate?.clear();
       options.onUpdate?.(safe);
       options.onFinish?.(result.usage);
       return safe;
     } catch (err) {
       this._needsEngineReload = true;
       if (operation.controller.signal.aborted) throw abortError();
+      if (gate?.blocked) {
+        this.messages.push(
+          { role: 'user', content: userText },
+          { role: 'assistant', content: LLM_OUTPUT_BLOCK_MESSAGE },
+        );
+        gate.clear();
+        options.onUpdate?.(LLM_OUTPUT_BLOCK_MESSAGE);
+        options.onFinish?.(null);
+        return LLM_OUTPUT_BLOCK_MESSAGE;
+      }
       throw err;
     } finally {
+      gate?.clear();
+      this._previewGate = null;
       operation.finish();
     }
   }

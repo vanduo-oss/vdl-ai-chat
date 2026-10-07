@@ -31,3 +31,9 @@ First public npm release of `@vanduo-oss/vwl-ai-chat`.
 - FOSS LLM + tool guardrails and CSP-safe markdown helpers
 - Dual QA gates: CI unit/coverage suite (no inference) and local Playwright WebGPU load+generate
 - Publish-ready package metadata (`publishConfig.access: public`)
+
+### October 2026 — checked text delivery
+
+- Optional `delivery` and `onPreview` add checked plain-text previews across all
+  three engines; the default and final callback/history contracts stay complete.
+- Clear rejected, revised, cancelled and failed previews; keep tool loops buffered.

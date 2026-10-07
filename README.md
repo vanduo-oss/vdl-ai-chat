@@ -87,7 +87,7 @@ The original `generate(text, onUpdate, onFinish)` callbacks remain supported. On
 
 Tool arguments are screened before execution and tool results before ingestion or `onTool`; unsafe results are replaced with a fixed error. Tools validate plain JSON, types, required/properties/additionalProperties, arrays, enums and numeric/string/array bounds. Unsupported schema keywords fail closed. Native results use `tool_response` messages; XML values are escaped. Defaults: 4 rounds, 8 calls, 15 seconds per tool, 8 KB result; host options are capped. Executors receive an optional third `{ signal }` argument and should honor it. A timeout stops awaiting a tool; it cannot undo external side effects.
 
-Complete replies are buffered and checked before `onUpdate`, `onFinish`, history or speech. `onUpdate` retains its signature but fires once with the complete checked reply. These deterministic checks reduce protocol misuse; they do not establish factual accuracy. Render text through the safe markdown helper.
+By default, complete replies are buffered and checked before `onUpdate`, `onFinish`, history or speech. `onUpdate` retains its signature but fires once with the complete checked reply. These deterministic checks reduce protocol misuse; they do not establish factual accuracy. Render text through the safe markdown helper.
 
 ## CSP / WASM
 
@@ -167,3 +167,30 @@ The default is English-first, family-friendly assistant output. User profanity a
 These rules provide limited semantic moderation and can miss novel attacks or misread context. No classifier model or remote moderation service is introduced. Follow [OWASP boundary guidance](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html): keep tool permissions minimal and treat retrieved text as untrusted. Markdown destinations permit HTTP(S), ordinary relative paths and fragments; rejected links render as inert labels.
 
 `pnpm guardrails:evaluate -- /absolute/path/to/baseline/llm.js` compares identical targeted attack and benign fixtures and reports scan latency. This is regression evidence, not a general detection rate.
+
+## Checked text previews
+
+`generate(text, { delivery: 'checked-stream', onPreview })` opts into ephemeral,
+cumulative checked text. The package default remains `delivery: 'complete'`.
+`onPreview('')` clears the preview; render it as escaped plain text, separately
+from transcript/export state. Keep speech disabled until final acceptance.
+`onUpdate`, the returned answer and committed history contain only the final
+checked answer. Tool-generation loops always use complete-answer delivery.
+
+The shared gate across LiteRT, WebLLM and Transformers.js checks the entire
+accumulated visible answer at most once per 100 ms, retains at least 64 trailing
+characters and releases completed sentences/paragraphs. After 512 pending
+characters, a complete-word boundary is allowed. Thought/tool protocol channels
+and unfinished markers are withheld. Prefix revision clears the preview and
+finishes in complete-answer mode. Completion checks the entire final answer.
+Policy rejection interrupts inference, clears previews, emits the structured
+guardrail event and returns the existing fixed safe answer; the next turn
+rebuilds backend context. Cancellation and errors clear previews and commit no
+partial answer.
+
+This follows the **check-before-release** architecture described in
+[NVIDIA's streaming guidance](https://docs.nvidia.com/nemo/guardrails/configure-guardrails/yaml-schema/streaming/output-rail-streaming),
+implemented locally without its runtime or a classifier. Earlier checked text
+may have appeared before a later violation is found. Full-answer mode preserves
+the stronger guarantee that nothing is exposed before the whole reply is checked.
+Deterministic local rules provide limited semantic moderation in either mode.

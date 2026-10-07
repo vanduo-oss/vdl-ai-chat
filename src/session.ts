@@ -18,6 +18,9 @@ export type GuardrailEvent = {
   toolName?: string;
 };
 export type GenerateOptions = {
+  delivery?: 'complete' | 'checked-stream';
+  /** Cumulative checked plain-text preview; empty clears it. Never persist or speak. */
+  onPreview?: (text: string) => void;
   onGuardrail?: (event: GuardrailEvent) => void;
   signal?: AbortSignal;
   maxOutputTokens?: number;
