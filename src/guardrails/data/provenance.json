@@ -1,0 +1,39 @@
+{
+  "unicode": {
+    "version": "18.0.0",
+    "source": "https://www.unicode.org/Public/security/latest/confusables.txt",
+    "sha256": "6ed3ee967c9dfdf6677d563c9985182fbc50a2efb7d6059cd57b2e2ce18f5b92",
+    "license": "Unicode-3.0",
+    "derivedFile": "unicode-ascii.json",
+    "derivedSha256": "d196e1623fb7334c894205173f7af8f207368a39dbc410f330b0f5aaac7aca62",
+    "adaptation": "Only single non-ASCII characters mapping to at most four printable ASCII characters; NFKC/NFKD are supplied by the JS runtime."
+  },
+  "pyrit": {
+    "revision": "e8ae6f7df2caa1433fc23bfaa1ef21a5b9b3bde1",
+    "path": "pyrit/score/true_false/regex/static_prompt_injection_scorer.py",
+    "sha256": "56c6a37daa104899bf43f8bf4a8c71581eeef4b728aeae74679e40e9389f65ae",
+    "license": "MIT",
+    "adaptation": "Selected override, extraction, unsafe-persona, constraint-removal and template-delimiter families. Clause-bounded gaps, own-instruction extraction, no generic role reassignment. Local educational quote handling is not upstream."
+  },
+  "obscenity": {
+    "version": "0.4.6",
+    "source": "https://www.npmjs.com/package/obscenity/v/0.4.6",
+    "license": "MIT",
+    "policy": "Reviewed nine-word subset; no standalone anatomy, identity or abuse-reporting terms; input profanity does not block.",
+    "integrity": "sha512-pHk7kNN7j3L3zGhhGnwxjvXIGsPpLrcZl2r58fqWh/V/rH6b/dafscj2sMmAY+A/9/wPsocLmimgGk2DKeKsFQ==",
+    "benignTerms": [
+      "scunthorpe",
+      "shiitake"
+    ],
+    "adaptation": "Recommended English matcher transformers with nine reviewed terms, two local term-interval whitelists, and a clinical-injury exception only within a matched graphic phrase."
+  },
+  "normalization": {
+    "version": "18.0.0",
+    "source": "https://www.unicode.org/Public/UCD/latest/ucd/NormalizationTest.txt",
+    "sha256": "25a50d816764b04abfb4a646d3eb2b2a803284c3873d9a06757b94fe4513dde3",
+    "license": "Unicode-3.0",
+    "derivedFile": "unicode-normalization-ascii.json",
+    "derivedSha256": "2e065db20f6af349d751d3aec8b3798421fb7cd4d397253aeb76f9f61b639c0f",
+    "adaptation": "Single non-ASCII code points whose NFKC is at most four printable ASCII characters. Apply before native normalization to stabilize English compatibility folds across browser Unicode versions. Native NFKC/NFKD handles remaining text; this is not a full Unicode normalization engine."
+  }
+}

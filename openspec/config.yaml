@@ -4,7 +4,7 @@ context: |
   Package: @vanduo-oss/vwl-ai-chat (MIT, vanduo-oss org). Labs sibling repo —
   private / not published on npm; consume via link: beside Labs.
   Headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails and
-  CSP-safe markdown. Zero runtime npm deps; heavy runtimes load via CDN or
+  CSP-safe markdown. One pinned runtime dependency: obscenity 0.4.6 (reviewed local matcher); heavy runtimes load via CDN or
   host-injected loaders (CSP). Stack: TypeScript ESM library, vite lib build,
   vitest. OpenSpec is the source of truth; README is a short usage guide.
   Recommended default model: Gemma 4 E2B LiteRT (`gemma-4-E2B-it-web`, WebGPU).
@@ -23,6 +23,6 @@ rules:
   design:
     - Headless only — no Vue UI in this package
     - Keep injectable loaders for LiteRT/WebLLM
-    - No new runtime npm dependencies
+    - Only the user-approved pinned obscenity 0.4.6 runtime dependency; heavy runtimes remain injected
   tasks:
     - Include pnpm build and pnpm test when code changes

@@ -391,10 +391,10 @@ describe('AiChat load + generate (mocked LiteRT)', () => {
     await expect(chat.generate('Ignore previous instructions')).rejects.toThrow();
   });
 
-  it('blocks PrefillDecode models on load', async () => {
+  it('rejects retired models on load', async () => {
     const { AiChat } = await importAiChat();
     const chat = new AiChat({ modelId: 'qwen3-0.6B-litert' });
-    await expect(chat.load()).rejects.toThrow(/Unsupported/);
+    await expect(chat.load()).rejects.toThrow(/supported catalog/);
   });
 
   it('rewrites Engine.create failures', async () => {
@@ -584,9 +584,9 @@ describe('AiChat WebLLM path (mocked)', () => {
   it('retains runtime model fields while applying pinned local URLs', async () => {
     stubBrowserStorageAndFetch({ webllmLocal: true });
     const { AiChat } = await importAiChat();
-    const id = 'Qwen3.5-0.8B-q4f16_1-MLC';
+    const id = 'Qwen3-0.6B-q4f16_1-MLC';
     const runtimeRecord = {
-      model: 'https://huggingface.co/mlc-ai/Qwen3.5-0.8B-q4f16_1-MLC',
+      model: 'https://huggingface.co/mlc-ai/Qwen3-0.6B-q4f16_1-MLC',
       model_id: id,
       model_lib: 'https://example.test/model.wasm',
       vram_required_MB: 1629.49,
@@ -654,48 +654,6 @@ describe('AiChat WebLLM path (mocked)', () => {
     expect(reply).toBe('WebLLM');
     chat.reset();
     await chat.generate('again');
-  });
-
-  it('Gemma MLC workaround reloads each turn and handles empty stream', async () => {
-    stubBrowserStorageAndFetch({ webllmLocal: true });
-    vi.stubGlobal('location', { origin: 'http://localhost:5173' });
-    let createCount = 0;
-    const engine = {
-      chat: {
-        completions: {
-          create: vi.fn(async (opts: { stream?: boolean }) => {
-            createCount += 1;
-            if (opts.stream) {
-              return (async function* () {
-                yield { choices: [{ delta: { content: '' } }] };
-              })();
-            }
-            return {
-              choices: [{ message: { content: [{ text: 'recovered' }] } }],
-              usage: { total_tokens: 1 },
-            };
-          }),
-        },
-      },
-      reload: vi.fn(async () => {}),
-    };
-    const { AiChat } = await importAiChat();
-    const chat = new AiChat({
-      modelId: 'gemma-4-E2B-it-q4f16_1-MLC',
-      loadWebLLM: async () => ({
-        CreateMLCEngine: vi.fn(async (_id, cfg) => {
-          cfg.initProgressCallback({ progress: 0.5, text: 'Downloading 10MB' });
-          cfg.initProgressCallback({ progress: 0.99, text: 'Loading model to GPU' });
-          return engine;
-        }),
-      }),
-    });
-    await chat.load();
-    const reply = await chat.generate('one');
-    expect(reply).toBe('recovered');
-    await chat.generate('two');
-    expect(engine.reload).toHaveBeenCalled();
-    expect(createCount).toBeGreaterThan(1);
   });
 
   it('throws when WebLLM returns empty even after reload', async () => {

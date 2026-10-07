@@ -5,8 +5,23 @@ export type ContextStatus = {
   omittedTurns: number;
   estimatedInputTokens: number;
   inputBudget: number;
+  rejectedSources?: number;
+  omittedSources?: number;
+  rejectedHistoryTurns?: number;
+};
+export type GuardrailEvent = {
+  stage: 'input' | 'source' | 'history' | 'tool-arguments' | 'tool-result' | 'output';
+  code: string;
+  ruleIds: string[];
+  sourceIndex?: number;
+  historyTurn?: number;
+  toolName?: string;
 };
 export type GenerateOptions = {
+  delivery?: 'complete' | 'checked-stream';
+  /** Cumulative checked plain-text preview; empty clears it. Never persist or speak. */
+  onPreview?: (text: string) => void;
+  onGuardrail?: (event: GuardrailEvent) => void;
   signal?: AbortSignal;
   maxOutputTokens?: number;
   contextTokenBudget?: number;

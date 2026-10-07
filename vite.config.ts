@@ -15,6 +15,7 @@ export default defineConfig({
         `${entryName}.${format === 'es' ? 'js' : 'cjs'}`,
     },
     rollupOptions: {
+      external: ['obscenity'],
       output: {
         exports: 'named',
       },

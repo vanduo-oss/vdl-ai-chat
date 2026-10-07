@@ -37,7 +37,7 @@ import { LLM_OUTPUT_BLOCK_MESSAGE } from '../src/guardrails/llm.js';
 describe('MODEL catalog', () => {
   it('groups include gemma4 and qwen3', () => {
     expect(MODEL_GROUPS.map((g) => g.id)).toEqual(
-      expect.arrayContaining(['gemma4', 'qwen3', 'experimental', 'optional']),
+      expect.arrayContaining(['gemma4', 'qwen3', 'liquid']),
     );
   });
 
@@ -167,10 +167,8 @@ describe('load progress helpers', () => {
 
 describe('LiteRT runtime guards', () => {
   it('blocks PrefillDecode spikes', () => {
-    expect(isLiteRTPrefillDecodeUnsupported('qwen3-0.6B-litert')).toBe(true);
-    expect(getLiteRTRuntimeBlockReason('qwen3-0.6B-litert')).toBe(
-      LITERT_PREFILLDECODE_UNSUPPORTED_REASON,
-    );
+    expect(isLiteRTPrefillDecodeUnsupported('qwen3-0.6B-litert')).toBe(false);
+    expect(getLiteRTRuntimeBlockReason('qwen3-0.6B-litert')).toBe('');
     expect(isLiteRTPrefillDecodeUnsupported('gemma-4-E2B-it-web')).toBe(false);
     expect(getLiteRTRuntimeBlockReason('gemma-4-E2B-it-web')).toBe('');
     expect(isLiteRTPrefillDecodeUnsupported(null)).toBe(false);
@@ -380,13 +378,13 @@ describe('device capacity', () => {
     expect(smallOnLowGpu.level).toBe('ok');
 
     const cautionLargeOn8gb = assessLoadCapacity({
-      modelId: 'gemma-4-E4B-it-q4f16_1-MLC',
+      modelId: 'gemma-4-E4B-it-web',
       systemInfo: { deviceMemory: 8, hardwareConcurrency: 8 },
     });
-    expect(cautionLargeOn8gb.level).toBe('caution');
+    expect(cautionLargeOn8gb.level).toBe('ok');
 
     const cautionCores = assessLoadCapacity({
-      modelId: 'gemma-4-E4B-it-q4f16_1-MLC',
+      modelId: 'gemma-4-E4B-it-web',
       systemInfo: { deviceMemory: 16, hardwareConcurrency: 2 },
     });
     expect(['caution', 'high']).toContain(cautionCores.level);
@@ -398,7 +396,7 @@ describe('device capacity', () => {
     expect(twoCoresSmall.level).toBe('ok');
 
     const modestCores = assessLoadCapacity({
-      modelId: 'gemma-4-E4B-it-q4f16_1-MLC',
+      modelId: 'gemma-4-E4B-it-web',
       systemInfo: { deviceMemory: 16, hardwareConcurrency: 4 },
     });
     expect(modestCores.level).toBe('caution');

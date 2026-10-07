@@ -2,7 +2,7 @@
   "name": "@vanduo-oss/vwl-ai-chat",
   "version": "0.1.1",
   "private": true,
-  "description": "Vanduo Web Labs headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails",
+  "description": "Headless browser-local AiChat with LiteRT, WebLLM and Transformers.js adapters, local guardrails and safe markdown",
   "type": "module",
   "homepage": "https://github.com/vanduo-oss/vwl-ai-chat#readme",
   "repository": {
@@ -28,7 +28,10 @@
     "dist",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "src/guardrails/data/provenance.json",
+    "src/guardrails/data/*LICENSE.txt"
   ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -65,22 +68,24 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.mjs\"",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:ci": "vitest run --coverage",
+    "test:ci": "node scripts/verify-guardrail-data.mjs && vitest run --coverage",
     "test:e2e": "node scripts/ensure-gemma-e2e-model.mjs && pnpm run build && playwright test -c tests/e2e/playwright.config.ts",
-    "test:local": "pnpm run test:ci && pnpm run test:e2e"
+    "test:local": "pnpm run test:ci && pnpm run test:e2e",
+    "guardrails:evaluate": "node scripts/evaluate-guardrails.mjs",
+    "guardrails:verify": "node scripts/verify-guardrail-data.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@litert-lm/core": "0.17.1",
     "@litertjs/wasm-utils": "2.5.3",
-    "@playwright/test": "^1.62.1",
-    "@types/node": "26.1.0",
-    "@typescript-eslint/parser": "8.62.0",
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.6.4",
+    "@typescript-eslint/parser": "8.71.0",
     "@vitest/coverage-v8": "4.1.11",
-    "eslint": "^10.8.0",
-    "prettier": "^3.9.6",
+    "eslint": "10.12.0",
+    "prettier": "3.9.9",
     "typescript": "^5.9.3",
-    "typescript-eslint": "8.62.0",
+    "typescript-eslint": "8.71.0",
     "vite": "^6.4.3",
     "vitest": "4.1.11"
   },
@@ -88,5 +93,8 @@
     "node": ">=20.19.0",
     "pnpm": ">=10"
   },
-  "packageManager": "pnpm@10.28.2"
+  "packageManager": "pnpm@10.28.2",
+  "dependencies": {
+    "obscenity": "0.4.6"
+  }
 }

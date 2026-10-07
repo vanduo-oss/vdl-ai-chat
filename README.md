@@ -1,6 +1,6 @@
 # @vanduo-oss/vwl-ai-chat
 
-Headless on-device AiChat (LiteRT Gemma / WebLLM) with FOSS guardrails and CSP-safe markdown.
+Headless on-device AiChat (LiteRT, WebLLM and Transformers.js) with FOSS guardrails and CSP-safe markdown.
 
 This is a **Labs sibling repo**, not a public npm package. Consume it via `link:` /
 workspace next to [Vanduo Web Labs](https://github.com/vanduo-oss/labs).
@@ -47,17 +47,20 @@ const html = labsMarkdownToHtml(reply);
 
 ## API highlights
 
-| Export | Purpose |
-| --- | --- |
-| `AiChat` | Headless engine: `load()`, `generate()`, `generateWithTools()`, `registerTools()`, `dispose()` |
-| `MODEL_OPTIONS` / `MODEL_GROUPS` | Catalog; default entry is Gemma 4 E2B LiteRT |
-| `validateLlmInput` / `validateLlmOutput` | Deterministic FOSS jailbreak scanners |
-| `validateToolCall` / `parseXmlToolCalls` | Tool allowlist + XML tool protocol |
-| `labsMarkdownToHtml` | CSP-safe GFM subset (escape HTML; headings, lists, tables, fences, links) |
+| Export                                   | Purpose                                                                                        |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `AiChat`                                 | Headless engine: `load()`, `generate()`, `generateWithTools()`, `registerTools()`, `dispose()` |
+| `MODEL_OPTIONS` / `MODEL_GROUPS`         | Catalog; default entry is Gemma 4 E2B LiteRT                                                   |
+| `validateLlmInput` / `validateLlmOutput` | Deterministic FOSS jailbreak scanners                                                          |
+| `validateToolCall` / `parseXmlToolCalls` | Tool allowlist + XML tool protocol                                                             |
+| `labsMarkdownToHtml`                     | CSP-safe GFM subset (escape HTML; headings, lists, tables, fences, links)                      |
 
 Constructor options of note:
 
 - `modelId` — defaults to `gemma-4-E2B-it-web`
+- `guardrailProfile` — `family-friendly` (default) or `general`; local deterministic policy, not a semantic classifier
+- `onGuardrail` — optional structured rejection events with stage, code and rule IDs; rejected text is never included
+- `loadTransformers` — host-injected worker adapter for the LFM ONNX builds
 - `loadLiteRT` / `loadWebLLM` — inject bundled runtimes (required under strict CSP; avoids CDN)
 - `liteRtWasmPath` — same-origin directory or `.js` URL for LiteRT WASM glue
 - `systemPromptOptions` — `{ product, extra }` folded into the FOSS role-lock sandwich
@@ -72,7 +75,7 @@ await chat.generate('How does the dock work?', {
   maxOutputTokens: 768,
   contextTokenBudget: 8192,
   sources: [{ id: 'dock:props', title: 'Dock props', text: 'A trusted host-selected excerpt' }],
-  onUpdate: safeText => render(safeText),
+  onUpdate: (safeText) => render(safeText),
   onContext: ({ omittedTurns }) => showOmissionNotice(omittedTurns),
 });
 // Stop from the host: abort.abort() or chat.cancel().
@@ -80,11 +83,11 @@ await chat.generate('How does the dock work?', {
 
 The original `generate(text, onUpdate, onFinish)` callbacks remain supported. Only one generation runs at a time. Cancellation rejects with `AbortError` and never commits a partial turn. `reset()`, `setHistory()`, `setModelId()` and `dispose()` invalidate active output. Disposal also releases an engine that finishes loading after navigation. Await asynchronous teardown before reusing a model.
 
-`getHistory()` returns a copy. Context budgeting reserves output space and retains recent complete turns while keeping visible history intact. The estimate is conservative; LiteRT's token count also triggers a native-state rebuild when needed. Supplied references are bounded untrusted data, never extra system instructions. Hosts must validate citation IDs before rendering source links.
+`getHistory()` returns a copy. Context budgeting reserves output space and retains recent complete turns while keeping visible history intact. The estimate is conservative; LiteRT's token count also triggers a native-state rebuild when needed. Supplied references and imported history are checked as bounded untrusted data. Rejected references/turns are omitted and reported via `onContext` and `onGuardrail`; generation stops if every supplied reference is rejected. Hosts must validate citation IDs before rendering source links.
 
-Tools validate plain JSON, types, required/properties/additionalProperties, arrays, enums and numeric/string/array bounds. Unsupported schema keywords fail closed. Native results use `tool_response` messages; XML values are escaped. Defaults: 4 rounds, 8 calls, 15 seconds per tool, 8 KB result; host options are capped. Executors receive an optional third `{ signal }` argument and should honor it. A timeout stops awaiting a tool; it cannot undo external side effects.
+Tool arguments are screened before execution and tool results before ingestion or `onTool`; unsafe results are replaced with a fixed error. Tools validate plain JSON, types, required/properties/additionalProperties, arrays, enums and numeric/string/array bounds. Unsupported schema keywords fail closed. Native results use `tool_response` messages; XML values are escaped. Defaults: 4 rounds, 8 calls, 15 seconds per tool, 8 KB result; host options are capped. Executors receive an optional third `{ signal }` argument and should honor it. A timeout stops awaiting a tool; it cannot undo external side effects.
 
-Streamed and final text pass the output guard before callbacks. These deterministic checks reduce protocol misuse; they do not establish factual accuracy. Render text through the safe markdown helper.
+By default, complete replies are buffered and checked before `onUpdate`, `onFinish`, history or speech. `onUpdate` retains its signature but fires once with the complete checked reply. These deterministic checks reduce protocol misuse; they do not establish factual accuracy. Render text through the safe markdown helper.
 
 ## CSP / WASM
 
@@ -113,18 +116,18 @@ See `tests/e2e/playwright.config.ts` for `args` that enable WebGPU on Apple Sili
 ## LiteRT model sizes (E2B vs E4B)
 
 - **E2B** (`gemma-4-E2B-it-web`, ~2 GB) — recommended default; reliable for CI/automation and headless Chrome.
-- **E4B** (`gemma-4-E4B-it-web`, ~3.0 GB) — quality option; the current artifact is 2,969,059,328 bytes. Cold and warm loads passed the local Chrome evaluation. Available browser memory and storage still matter. Package e2e uses E2B; the Labs evaluation covers all three curated models.
+- **E4B** (`gemma-4-E4B-it-web`, ~3.0 GB) — quality option; the current artifact is 2,969,059,328 bytes. Cold and warm loads passed the local Chrome evaluation. Available browser memory and storage still matter. Package e2e uses E2B; the Labs evaluation covers all six primary models.
 
 App-fetched weights are buffered to a `Blob` and passed to `Engine.create` (not re-streamed). Transient network failures retry a few times. Use `describeLoadProgress()` on `onProgress` events — `stage: 'error'` includes a human-readable `progressText` / `statusText`.
 
 ## Quality gates (local vs CI)
 
-| Script | What it runs | Inference? |
-| --- | --- | --- |
-| `pnpm test` / `pnpm test:ci` | Vitest unit suite + ≥90% coverage on `src/` | No (mocked loaders) |
-| `pnpm test:e2e` | Playwright: real LiteRT Gemma 4 E2B load + `generate()` | Yes (~2GB first download) |
-| `pnpm test:local` | `test:ci` then `test:e2e` | Yes |
-| `pnpm prepublishOnly` | `build` + `test:ci` | No |
+| Script            | What it runs                                                  | Inference?                |
+| ----------------- | ------------------------------------------------------------- | ------------------------- |
+| `pnpm test`       | Vitest unit suite                                             | No (mocked loaders)       |
+| `pnpm test:ci`    | Pinned-data verification and Vitest + ≥90% coverage on `src/` | No (mocked loaders)       |
+| `pnpm test:e2e`   | Playwright: real LiteRT Gemma 4 E2B load + `generate()`       | Yes (~2GB first download) |
+| `pnpm test:local` | `test:ci` then `test:e2e`                                     | Yes                       |
 
 CI (GitHub Actions) runs format, lint, typecheck, `test:ci`, build, pack dry-run, and audit — **never** downloads models or requires WebGPU.
 
@@ -144,3 +147,50 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) and [SECURITY.md](./SECURITY.md).
 ## License
 
 MIT
+
+## Current catalog and compatibility
+
+`PRIMARY_MODEL_OPTIONS` lists six models grouped by `MODEL_GROUPS`. `MODEL_OPTIONS` also contains two explicit compatibility variants; `getModelVariants()` and `getModelChoiceLabel()` support a shared primary/precision picker.
+
+| Primary model             | Engine                       | Status            | Tool integration                      |
+| ------------------------- | ---------------------------- | ----------------- | ------------------------------------- |
+| Gemma 4 E2B / E4B         | LiteRT                       | Default / quality | Native execution available            |
+| Qwen3 0.6B Tiny           | WebLLM                       | Retained          | Model supports tools; adapter pending |
+| LFM2.5 230M / 350M / 2.6B | Transformers.js, ONNX WebGPU | Candidates        | Model supports tools; adapter pending |
+
+Tiny Q4F32 and LFM 2.6B Q4 remain precision choices. `capabilities.tools` means executable integration; `toolCalling` records documented model support and its official source. Retired IDs fail with an actionable selection error before loading any replacement. Existing downloads and chats are preserved. Deprecated portable-model helpers remain small compatibility exports without an active catalog path.
+
+## Local policy and limitations
+
+The default is English-first, family-friendly assistant output. User profanity alone is allowed; health, identity, abuse reporting and help-seeking are supported. Bounded Unicode/encoding scan variants preserve original content. A reviewed `obscenity@0.4.6` subset checks assistant profanity, alongside local contextual rules and selected attributed PyRIT patterns. See [third-party notices](./THIRD_PARTY_NOTICES.md) and the provenance manifest for versions, licenses and checksums.
+
+These rules provide limited semantic moderation and can miss novel attacks or misread context. No classifier model or remote moderation service is introduced. Follow [OWASP boundary guidance](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html): keep tool permissions minimal and treat retrieved text as untrusted. Markdown destinations permit HTTP(S), ordinary relative paths and fragments; rejected links render as inert labels.
+
+`pnpm guardrails:evaluate -- /absolute/path/to/baseline/llm.js` compares identical targeted attack and benign fixtures and reports scan latency. This is regression evidence, not a general detection rate.
+
+## Checked text previews
+
+`generate(text, { delivery: 'checked-stream', onPreview })` opts into ephemeral,
+cumulative checked text. The package default remains `delivery: 'complete'`.
+`onPreview('')` clears the preview; render it as escaped plain text, separately
+from transcript/export state. Keep speech disabled until final acceptance.
+`onUpdate`, the returned answer and committed history contain only the final
+checked answer. Tool-generation loops always use complete-answer delivery.
+
+The shared gate across LiteRT, WebLLM and Transformers.js checks the entire
+accumulated visible answer at most once per 100 ms, retains at least 64 trailing
+characters and releases completed sentences/paragraphs. After 512 pending
+characters, a complete-word boundary is allowed. Thought/tool protocol channels
+and unfinished markers are withheld. Prefix revision clears the preview and
+finishes in complete-answer mode. Completion checks the entire final answer.
+Policy rejection interrupts inference, clears previews, emits the structured
+guardrail event and returns the existing fixed safe answer; the next turn
+rebuilds backend context. Cancellation and errors clear previews and commit no
+partial answer.
+
+This follows the **check-before-release** architecture described in
+[NVIDIA's streaming guidance](https://docs.nvidia.com/nemo/guardrails/configure-guardrails/yaml-schema/streaming/output-rail-streaming),
+implemented locally without its runtime or a classifier. Earlier checked text
+may have appeared before a later violation is found. Full-answer mode preserves
+the stronger guarantee that nothing is exposed before the whole reply is checked.
+Deterministic local rules provide limited semantic moderation in either mode.
