@@ -4,16 +4,16 @@
   "private": true,
   "description": "Headless browser-local AiChat with LiteRT, WebLLM and Transformers.js adapters, local guardrails and safe markdown",
   "type": "module",
-  "homepage": "https://github.com/vanduo-oss/vwl-ai-chat#readme",
+  "homepage": "https://github.com/nostromo-618/vwl-ai-chat#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vanduo-oss/vwl-ai-chat.git"
+    "url": "git+https://github.com/nostromo-618/vwl-ai-chat.git"
   },
   "bugs": {
-    "url": "https://github.com/vanduo-oss/vwl-ai-chat/issues"
+    "url": "https://github.com/nostromo-618/vwl-ai-chat/issues"
   },
   "license": "MIT",
-  "author": "vanduo-oss",
+  "author": "nostromo-618",
   "keywords": [
     "vanduo",
     "ai-chat",
