@@ -1,7 +1,7 @@
 # qa-gates Specification
 
 ## Purpose
-Defines dual QA gates and release documentation for publishing `@vanduo-oss/vwl-ai-chat` while keeping remote CI free of WebGPU model inference.
+Defines dual QA gates and release documentation for `@vanduo-oss/vwl-ai-chat`. `pnpm test:ci` stays free of WebGPU model inference.
 ## Requirements
 ### Requirement: dual-test-tiers
 
@@ -9,7 +9,7 @@ The repository MUST provide two test tiers: a CI-safe unit/coverage suite and a 
 
 #### Scenario: CI suite excludes inference
 
-- **WHEN** `pnpm test:ci` (or the default CI job) runs in GitHub Actions
+- **WHEN** `pnpm test:ci` runs
 - **THEN** tests MUST NOT download Gemma model weights or require WebGPU
 - **AND** coverage thresholds of at least 90% lines, branches, and functions on `src/` MUST be enforced for the CI suite
 

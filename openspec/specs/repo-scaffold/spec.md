@@ -1,7 +1,7 @@
 # repo-scaffold Specification
 
 ## Purpose
-Package scaffold, Labs-sibling metadata, build/types, and GitHub Actions CI for @vanduo-oss/vwl-ai-chat.
+Package scaffold, Labs-sibling metadata, and build/types for @vanduo-oss/vwl-ai-chat.
 ## Requirements
 ### Requirement: package-metadata
 
@@ -27,10 +27,14 @@ The package MUST build library artifacts via `pnpm build` and emit TypeScript de
 - **THEN** it exits 0 and `dist/index.d.ts` exists
 - **AND** `dist/` MUST contain ESM, CJS, and `.d.ts` outputs for the main and subpath exports
 
-### Requirement: github-actions-ci
+### Requirement: no remote CI
 
-The repository MUST include a GitHub Actions workflow on push/PR to `main` that runs format check, lint, typecheck, `test:ci`, build, and dependency audit. It MUST NOT run npm publish or treat the package as a registry release.
+The repository MUST NOT include GitHub Actions workflows or Dependabot config. Format check, lint, typecheck, `test:ci`, build, and dependency audit stay local scripts. It MUST NOT run npm publish or treat the package as a registry release.
 
-#### Scenario: CI does not run model inference
-- **WHEN** the CI workflow executes
+#### Scenario: Actions are absent
+- **WHEN** `.github` is inspected
+- **THEN** it contains no workflow files and no `dependabot.yml`
+
+#### Scenario: the default test script does not run model inference
+- **WHEN** `pnpm test:ci` executes
 - **THEN** it MUST NOT run Playwright WebGPU Gemma load/generate tests
